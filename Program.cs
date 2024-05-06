@@ -34,32 +34,33 @@ namespace RV_Bozoer
 					(Path.GetFileNameWithoutExtension(args[0]) ?? "") + "_text" +
 					(Path.GetExtension(args[0]) ?? "")
 				);
-				string final_path = Path.Combine(
+				string processed_path = Path.Combine(
 					Path.GetDirectoryName(args[0]) ?? "",
 					(Path.GetFileNameWithoutExtension(args[0]) ?? "") + "_processed" +
 					(Path.GetExtension(args[0]) ?? "")
 				);
+				string final_path = Path.Combine(
+					Path.GetDirectoryName(args[0]) ?? "",
+					(Path.GetFileNameWithoutExtension(args[0]) ?? "") + "_final" +
+					(Path.GetExtension(args[0]) ?? "")
+				);
 				if (File.Exists(data_path)) File.Delete(data_path);
 				if (File.Exists(text_path)) File.Delete(text_path);
+				if (File.Exists(processed_path)) File.Delete(processed_path);
 				if (File.Exists(final_path)) File.Delete(final_path);
+
 				data_sw = new(File.OpenWrite(data_path));
 				text_sw = new(File.OpenWrite(text_path));
 
 				ProcessFile(Path.GetFullPath(args[0]));
 
+				//TODO: Check all functions complete
+
 				data_sw.Close();
 				text_sw.Close();
 
-				//Write data
-				File.Copy(data_path, final_path);
-				//Append text
-				FileStream fr = File.OpenRead(text_path);
-				FileStream fw = File.OpenWrite(final_path); fw.Seek(0, SeekOrigin.End);
-				fr.CopyTo(fw);
-				fr.Close();
-				fw.Close();
-				File.Delete(data_path);
-				File.Delete(text_path);
+				MergeDataText(data_path, text_path, processed_path);
+				LinkFile(processed_path, final_path);
 			}
 			catch (Exception e)
 			{
@@ -98,7 +99,7 @@ namespace RV_Bozoer
 				
 				if (!line.StartsWith("#;")) 
 				{
-					(data_sect ? data_sw : text_sw)?.WriteLine(lines[i]);
+					if (cur_func_decl == null) (data_sect ? data_sw : text_sw)?.WriteLine(lines[i]);
 					continue;
 				}
 				string[] split = line[2..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -166,6 +167,7 @@ namespace RV_Bozoer
 							Environment.Exit(1);
 						}
 						functions.Add(cur_func_decl.Name, cur_func_decl);
+						text_sw?.WriteLine($"#;__IMPLEMENT:{cur_func_decl.Name}");
 						break;
 
 					case "endfunc":
@@ -181,6 +183,7 @@ namespace RV_Bozoer
 							PrintFileStack(path, i);
 							Environment.Exit(1);
 						}
+						cur_func_decl.FlagComplete();
 						cur_func_decl = null;
 						break;
 
@@ -193,6 +196,102 @@ namespace RV_Bozoer
 			}
 		}
 
+		static void MergeDataText(string data, string text, string processed)
+		{
+			File.Copy(data, processed);
+			FileStream fr = File.OpenRead(text);
+			FileStream fw = File.OpenWrite(processed); fw.Seek(0, SeekOrigin.End);
+			fr.CopyTo(fw);
+			fr.Close();
+			fw.Close();
+			File.Delete(data);
+			File.Delete(text);
+		}
+
+		static void LinkFile(string processed, string final)
+		{
+			StreamReader sr = File.OpenText(processed);
+			StreamWriter sw = new(File.OpenWrite(final));
+
+			sw.WriteLine("# ==Processed and 'linked' by RV_Bozoer v0.1 by Didas72==");
+
+			while (!sr.EndOfStream)
+			{
+				string line = sr.ReadLine() ?? "";
+				sw.WriteLine(line);
+				string trimmed = line.Trim();
+
+				if (trimmed.StartsWith("#;__IMPLEMENT:"))
+				{
+					string func_name = trimmed[14..];
+					ImplementFunc(func_name, sw);
+				}
+				else if (trimmed.StartsWith("#;__INLINE:"))
+				{
+					string func_name = trimmed[11..];
+					InlineFunc(func_name, sw);
+				}
+			}
+
+			sr.Close();
+			sw.Close();
+			File.Delete(processed);
+		}
+
+		static void ImplementFunc(string func_name, StreamWriter sw)
+		{
+			if (!functions.TryGetValue(func_name, out FunctionDecl? func))
+			{
+				ErrorMsg($"Could not find function '{func_name}' for implementation.");
+				Environment.Exit(2);
+			}
+			if (func.References == 0)
+			{
+				InfoMsg($"Skipping implementation of '{func_name}': no references.");
+				return;
+			}
+
+			sw.WriteLine($"# [==Implementation of {func.Name}==]");
+			sw.WriteLine($"# [=={func}==]");
+
+			//Write till reached label
+			bool found_label = false;
+			int i;
+			for (i = 0; i < func.Lines.Count; i++)
+			{
+				string line = func.Lines[i];
+				sw.WriteLine(line);
+
+				if (line.Trim().StartsWith($"{func.Name}:"))
+				{
+					found_label = true;
+					break;
+				}
+			}
+			if (!found_label)
+			{
+				ErrorMsg($"Failed to find label for function '{func.Name}'.");
+				Environment.Exit(2);
+			}
+
+			//TODO: Append saving of s0-sX
+			//TODO: Write till before 'ret'
+			//TODO: Append poping of s0-sX
+			//TODO: Append ret and anything after (check no double ret, add poping or error out?)
+		}
+
+		static void InlineFunc(string func_name, StreamWriter sw)
+		{
+			if (!functions.TryGetValue(func_name, out FunctionDecl? func))
+			{
+				ErrorMsg($"Could not find function '{func_name}' for inlining.");
+				Environment.Exit(2);
+			}
+
+			//TODO: Finish implementation
+		}
+
+
 
 		static void PrintFileStack(string filename, int line)
 		{
@@ -200,7 +299,7 @@ namespace RV_Bozoer
 			if(fileStack.Count != 0)
 				Print("included from:");
 			foreach (FileStackEntry entry in fileStack)
-				Print($"\tline {entry.line} of '{entry.filename}'");
+				Print($"\tline {entry.line + 1} of '{entry.filename}'");
 		}
 
 		public static void Print(string msg)
@@ -248,6 +347,8 @@ namespace RV_Bozoer
 		public List<string> Lines { get; } = lines;
 		public string Filename { get; } = filename;
 		public int Line { get; } = line;
+		public bool Complete { get; private set; } = false;
+		public int References { get; private set; } = 0;
 
 
 		public static FunctionDecl? ParseHeader(string[] parts, string filename, int line)
@@ -281,10 +382,20 @@ namespace RV_Bozoer
 				leaf, savecount, tempcount, [], filename, line);
 		}
 
+		public void FlagComplete()
+		{
+			Complete = true;
+		}
+
+		public void IncrementRefs()
+		{
+			References++;
+		}
+
+
 
         public override string ToString()
         {
-            return $"{Name}: autosave={AutoSave} forceinline={ForceInline} leaf={Leaf} savec={SaveCount} tregc={TempCount} filename={Filename} line={Line} line_count={Lines.Count}";
-        }
+            return $"{Name}: autosave={AutoSave} forceinline={ForceInline} leaf={Leaf} savec={SaveCount} tregc={TempCount} filename={Filename} line={Line + 1} line_count={Lines.Count} complete={Complete} references={References}";        }
     }
 }

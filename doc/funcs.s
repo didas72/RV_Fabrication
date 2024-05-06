@@ -3,7 +3,11 @@
 #
 # Before function code
 #   If func is autosave:
-#    - Saves registers s0-sX
+#    - Push registers s0-sX
+#
+# After function code, before ret
+#   If func is autosave:
+#    - Pop registers s0-sX
 
 #fancyop => q = (a+b)/c && r = (a+b)%c
 #;funcdecl fancyop autosave noinline leaf 0 2
