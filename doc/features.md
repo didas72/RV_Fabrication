@@ -1,10 +1,11 @@
 # Planned features for RV_Bozoer
 
-- Preserve all preprocessor statements
-- Includes
-- Pseudo sections for includes
-- Include guards
+- [V] Preserve all preprocessor statements (except sections)
+- [V] Includes
+- [V] Pseudo sections for includes
+- [V] Include guards
+- Better function support:
+  - Inlines
+  - Auto caller/calle actions
 - Macros
-- Inlines
 - Push/Pop
-- Auto caller/callee actions
