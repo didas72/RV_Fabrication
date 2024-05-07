@@ -13,6 +13,7 @@ namespace RV_Bozoer
 		private static StreamWriter? data_sw, text_sw;
 
 
+
 		private static void Main(string[] args)
 		{
 			InfoMsg($"RV_Bozoer v0.1 by Didas72");
@@ -55,10 +56,18 @@ namespace RV_Bozoer
 
 				ProcessFile(Path.GetFullPath(args[0]));
 
-				//TODO: Check all functions complete
-
 				data_sw.Close();
 				text_sw.Close();
+
+				foreach (FunctionDecl func in functions.Values)
+				{
+					if (!func.Complete)
+					{
+						ErrorMsg($"Function '{func.Name}' is not complete. Missing a '#;endfunc'?");
+						Environment.Exit(-1);
+					}
+					func.DetermineAutos();
+				}
 
 				MergeDataText(data_path, text_path, processed_path);
 				LinkFile(processed_path, final_path);
@@ -66,7 +75,7 @@ namespace RV_Bozoer
 			catch (Exception e)
 			{
 				ErrorMsg($"Unhandled exception: {e}");
-				Environment.Exit(1);
+				Environment.Exit(-1);
 			}
 
 			InfoMsg("Processing complete.");
@@ -280,7 +289,7 @@ namespace RV_Bozoer
 				return;
 			}
 
-			sw.WriteLine($"#[===LNK: AUTOIMPL {func}===]");
+			sw.WriteLine($"#[===LNK: AutoImpl {func}===]");
 
 			//Write till reached label
 			bool found = false;
@@ -305,13 +314,13 @@ namespace RV_Bozoer
 			if (func.AutoSave && func.SaveCount != 0)
 			{
 				if (func.SaveCount == 1)
-					sw.WriteLine($"#[===LNK: Autosave s0===]");
+					sw.WriteLine($"#[===LNK: AutoSave s0===]");
 				else
-					sw.WriteLine($"#[===LNK: Autosave s0-s{func.SaveCount-1}===]");
+					sw.WriteLine($"#[===LNK: AutoSave s0-s{func.SaveCount-1}===]");
 				sw.WriteLine($"\taddi sp, sp, -{4*func.SaveCount}");
 				for (int j = 0; j < func.SaveCount; j++)
 					sw.WriteLine($"\tsw s{j}, {j*4}(sp)");
-				sw.WriteLine($"#[===LNK: End autosave===]");
+				sw.WriteLine($"#[===LNK: End AutoSave===]");
 			}
 
 			//Write till before 'ret'
@@ -343,20 +352,20 @@ namespace RV_Bozoer
 			if (func.AutoSave && func.SaveCount != 0)
 			{
 				if (func.SaveCount == 1)
-					sw.WriteLine($"#[===LNK: Autorestore s0===]");
+					sw.WriteLine($"#[===LNK: AutoRestore s0===]");
 				else
-					sw.WriteLine($"#[===LNK: Autorestore s0-s{func.SaveCount-1}===]");
+					sw.WriteLine($"#[===LNK: AutoRestore s0-s{func.SaveCount-1}===]");
 				for (int j = func.SaveCount - 1; j >= 0; j--)
 					sw.WriteLine($"\tlw s{j}, {j*4}(sp)");
 				sw.WriteLine($"\taddi sp, sp, {4*func.SaveCount}");
-				sw.WriteLine($"#[===LNK: End autorestore===]");
+				sw.WriteLine($"#[===LNK: End AutoRestore===]");
 			}
 
 			//Append ret and anything after
 			for (; i < func.Lines.Count - 1; i++) //Skip #;endfunc
 				sw.WriteLine(func.Lines[i]);
 
-			sw.WriteLine($"#[===LNK: ENDIMPL===]");
+			sw.WriteLine($"#[===LNK: End AutoImpl===]");
 		}
 
 		static void CallOrInline(string func_name, string tregs_str, StreamWriter sw)
@@ -379,12 +388,12 @@ namespace RV_Bozoer
 			//Push tregs
 			if (tsave > 0)
 			{
-				if (tsave == 1) sw.WriteLine($"#[===LNK: Autosave t0===]");
-				else sw.WriteLine($"#[===LNK: Autosave t0-t{tsave-1}===]");
+				if (tsave == 1) sw.WriteLine($"#[===LNK: AutoSave t0===]");
+				else sw.WriteLine($"#[===LNK: AutoSave t0-t{tsave-1}===]");
 				sw.WriteLine($"\taddi sp, sp, -{4*tsave}");
 				for (int j = 0; j < tsave; j++)
 					sw.WriteLine($"\tsw t{j}, {j*4}(sp)");
-				sw.WriteLine($"#[===LNK: End autosave===]");
+				sw.WriteLine($"#[===LNK: End autoSave===]");
 			}
 
 			//Call or inline
@@ -401,18 +410,20 @@ namespace RV_Bozoer
 			//Pop tregs
 			if (tsave > 0)
 			{
-				if (tsave == 1) sw.WriteLine($"#[===LNK: Autorestore t0===]");
-				else sw.WriteLine($"#[===LNK: Autorestore t0-t{tsave-1}===]");
+				if (tsave == 1) sw.WriteLine($"#[===LNK: AutoRestore t0===]");
+				else sw.WriteLine($"#[===LNK: AutoRestore t0-t{tsave-1}===]");
 				for (int j = 0; j < tsave; j++)
 					sw.WriteLine($"\tsw t{j}, {j*4}(sp)");
 				sw.WriteLine($"\taddi sp, sp, -{4*tsave}");
-				sw.WriteLine($"#[===LNK: End autorestore===]");
+				sw.WriteLine($"#[===LNK: End AutoRestore===]");
 			}
+		
+			sw.WriteLine($"#[===LNK: End AutoCall===]");
 		}
 
 		static void InlineFunc(FunctionDecl func, StreamWriter sw)
 		{
-			sw.WriteLine($"#[===LNK: INLINED {func}===]");
+			sw.WriteLine($"#[===LNK: Inline {func}===]");
 
 			//Write till reached label
 			bool found = false;
@@ -437,13 +448,13 @@ namespace RV_Bozoer
 			if (func.AutoSave && func.SaveCount != 0)
 			{
 				if (func.SaveCount == 1)
-					sw.WriteLine($"#[===LNK: Autosave s0===]");
+					sw.WriteLine($"#[===LNK: AutoSave s0===]");
 				else
-					sw.WriteLine($"#[===LNK: Autosave s0-s{func.SaveCount-1}===]");
+					sw.WriteLine($"#[===LNK: AutoSave s0-s{func.SaveCount-1}===]");
 				sw.WriteLine($"\taddi sp, sp, -{4*func.SaveCount}");
 				for (int j = 0; j < func.SaveCount; j++)
 					sw.WriteLine($"\tsw s{j}, {j*4}(sp)");
-				sw.WriteLine($"#[===LNK: End autosave===]");
+				sw.WriteLine($"#[===LNK: End AutoSave===]");
 			}
 
 			//Write till before 'ret'
@@ -475,22 +486,21 @@ namespace RV_Bozoer
 			if (func.AutoSave && func.SaveCount != 0)
 			{
 				if (func.SaveCount == 1)
-					sw.WriteLine($"#[===LNK: Autorestore s0===]");
+					sw.WriteLine($"#[===LNK: AutoRestore s0===]");
 				else
-					sw.WriteLine($"#[===LNK: Autorestore s0-s{func.SaveCount-1}===]");
+					sw.WriteLine($"#[===LNK: AutoRestore s0-s{func.SaveCount-1}===]");
 				for (int j = func.SaveCount - 1; j >= 0; j--)
 					sw.WriteLine($"\tlw s{j}, {j*4}(sp)");
 				sw.WriteLine($"\taddi sp, sp, {4*func.SaveCount}");
-				sw.WriteLine($"#[===LNK: End autorestore===]");
+				sw.WriteLine($"#[===LNK: End AutoRestore===]");
 			}
 
 			//Skip ret and append anything after
 			for (i++; i < func.Lines.Count - 1; i++) //Skip #;endfunc
 				sw.WriteLine(func.Lines[i]);
 
-			sw.WriteLine($"#[===LNK: End inline===]");
+			sw.WriteLine($"#[===LNK: End Inline===]");
 		}
-
 
 
 
@@ -543,8 +553,8 @@ namespace RV_Bozoer
 		public bool AutoSave { get; } = autosave;
 		public bool ForceInline { get; } = forceinline;
 		public bool Leaf { get; } = leaf;
-		public int SaveCount { get; } = savecount;
-		public int TempCount { get; } = tempcount;
+		public int SaveCount { get; private set; } = savecount;
+		public int TempCount { get; private set; } = tempcount;
 		public List<string> Lines { get; } = lines;
 		public string Filename { get; } = filename;
 		public int Line { get; } = line;
@@ -559,6 +569,7 @@ namespace RV_Bozoer
 			bool autosave = false;
 			bool forceinline = false;
 			bool leaf = false;
+			int savecount, tempcount;
 
 			if (parts[1] == "autosave") autosave = true;
 			else if (parts[1] != "handsave") 
@@ -572,13 +583,13 @@ namespace RV_Bozoer
 			else if (parts[3] != "noleaf")
 			{ Program.ErrorMsg($"funcdecl needs either 'leaf' or 'noleaf'. '{parts[3]}' was found."); return null; }
 
-			if (!int.TryParse(parts[4], out int savecount))
-			{ Program.ErrorMsg($"funcdecl needs a non-negative integer <savec>. '{parts[4]}' was found.'"); return null; }
+			if (parts[4] == "?") savecount = -1;
+			else if (!int.TryParse(parts[4], out savecount) || savecount < 0 || savecount > 12)
+			{ Program.ErrorMsg($"funcdecl needs a non-negative integer <savec> up to 12. '{parts[4]}' was found.'"); return null; }
 
-			if (!int.TryParse(parts[5], out int tempcount))
-			{ Program.ErrorMsg($"funcdecl needs a non-negative integer <tregc>. '{parts[5]}' was found."); return null; }
-
-			//TODO: Check savecount and tempcount
+			if (parts[5] == "?") tempcount = -1;
+			else if (!int.TryParse(parts[5], out tempcount) || tempcount < 0 || tempcount > 7)
+			{ Program.ErrorMsg($"funcdecl needs a non-negative integer <tregc> up to 7 . '{parts[5]}' was found."); return null; }
 
 			return new FunctionDecl(parts[0], autosave, forceinline,
 				leaf, savecount, tempcount, [], filename, line);
@@ -587,6 +598,40 @@ namespace RV_Bozoer
 		public void FlagComplete()
 		{
 			Complete = true;
+		}
+
+		public void DetermineAutos()
+		{
+			if (SaveCount == -1)
+			{
+				int lowest = -1;
+
+				for (int i = 0; i < Lines.Count; i++)
+				{
+					string line = Lines[i].Split('#')[0].Trim(); //Remove comments/preprocessor and trim
+					for (int j = 0; j < 12; j++)
+						if (line.Contains($"s{j}"))
+							lowest = j;
+				}
+
+				SaveCount = lowest + 1;
+			}
+
+			//TODO: Determine TempCount if set to -1
+			if (TempCount == -1)
+			{
+				int lowest = -1;
+
+				for (int i = 0; i < Lines.Count; i++)
+				{
+					string line = Lines[i].Split('#')[0].Trim(); //Remove comments/preprocessor and trim
+					for (int j = 0; j < 7; j++)
+						if (line.Contains($"t{j}"))
+							lowest = j;
+				}
+
+				TempCount = lowest + 1;
+			}
 		}
 
 

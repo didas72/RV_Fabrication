@@ -8,5 +8,6 @@
   - [V] Inlines
   - [V] Auto caller/calle actions
   - [V] Recrusive function handling
+  - [V] Automatically determine savec and tregc in funcdecl
 - [ ] Macros
-- [ ] Push/Pop
+  - [ ] Push/Pop
