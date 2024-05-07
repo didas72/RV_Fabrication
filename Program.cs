@@ -9,6 +9,7 @@ namespace RV_Bozoer
 		private static readonly Stack<FileStackEntry> fileStack = new();
 		private static readonly List<string> includedFiles = [];
 		private static readonly Dictionary<string, FunctionDecl> functions = [];
+		private static readonly Dictionary<string, int> references = [];
 		private static StreamWriter? data_sw, text_sw;
 
 
@@ -106,7 +107,7 @@ namespace RV_Bozoer
 				string directive = split[0];
 				string[] args = split[1..];
 
-				if (directive != "sect")
+				if (directive != "sect" && directive != "include")
 					(data_sect ? data_sw : text_sw)?.WriteLine(lines[i]);
 
 				switch (directive)
@@ -187,6 +188,18 @@ namespace RV_Bozoer
 						cur_func_decl = null;
 						break;
 
+					case "funccall":
+						//TODO: Decide on recursive calls/inlines (check cur_func_decl)
+						if (args.Length != 2)
+						{
+							ErrorMsg($"Preprocessor directive 'funccall' takes exactly two arguments. {args.Length} provided.");
+							PrintFileStack(path, i);
+							Environment.Exit(1);
+						}
+						text_sw?.WriteLine($"#;__CALL:{args[0]} {args[1]}");
+						if (!references.TryAdd(args[0], 1)) references[args[0]]++;
+						break;
+
 					default:
 						WarnMsg($"Unknwon preprocessor directive: '{directive}'");
 						PrintFileStack(path, i);
@@ -213,7 +226,12 @@ namespace RV_Bozoer
 			StreamReader sr = File.OpenText(processed);
 			StreamWriter sw = new(File.OpenWrite(final));
 
-			sw.WriteLine("# ==Processed and 'linked' by RV_Bozoer v0.1 by Didas72==");
+			sw.WriteLine("# [===Processed and 'linked' by RV_Bozoer v0.1 by Didas72===]");
+			sw.WriteLine("# [===Included files:===]");
+			foreach (string file in includedFiles)
+			{
+				sw.WriteLine($"# [==={file}===]");
+			}
 
 			while (!sr.EndOfStream)
 			{
@@ -225,10 +243,11 @@ namespace RV_Bozoer
 					string func_name = trimmed[14..];
 					ImplementFunc(func_name, sw);
 				}
-				else if (trimmed.StartsWith("#;__INLINE:"))
+				else if (trimmed.StartsWith("#;__CALL:"))
 				{
-					string func_name = trimmed[11..];
-					InlineFunc(func_name, sw);
+					string rem = trimmed[9..];
+					string[] parts = rem.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+					CallOrInline(parts[0], parts[1], sw);
 				}
 				else sw.WriteLine(line);
 			}
@@ -245,9 +264,9 @@ namespace RV_Bozoer
 				ErrorMsg($"Could not find function '{func_name}' for implementation.");
 				Environment.Exit(2);
 			}
-			if (func.References == 0)
+			if (!references.ContainsKey(func.Name))
 			{
-				InfoMsg($"Skipping implementation of '{func_name}': no references.");
+				InfoMsg($"Skipping implementation of '{func.Name}': no references.");
 				return;
 			}
 
@@ -321,16 +340,56 @@ namespace RV_Bozoer
 				sw.WriteLine(func.Lines[i]);
 		}
 
-		static void InlineFunc(string func_name, StreamWriter sw)
+		static void CallOrInline(string func_name, string tregs_str, StreamWriter sw)
 		{
+			if (!int.TryParse(tregs_str, out int tregs))
+			{
+				ErrorMsg($"Could not parse integer <tregs> from '{tregs_str}'.");
+				Environment.Exit(1);
+			}
 			if (!functions.TryGetValue(func_name, out FunctionDecl? func))
 			{
-				ErrorMsg($"Could not find function '{func_name}' for inlining.");
+				ErrorMsg($"Could not find function '{func_name}' for calling.");
 				Environment.Exit(2);
 			}
 
-			//TODO: Finish implementation
+			sw.WriteLine($"#[===LNK: AUTOCALL {func.Name} (tregs={tregs})===]");
+
+			int tsave = func.Leaf ? Math.Min(tregs, func.TempCount) : tregs;
+
+			//Push tregs
+			if (tsave == 1) sw.WriteLine($"#[===LNK: Autosave t0===]");
+			else sw.WriteLine($"#[===LNK: Autosave t0-t{tsave-1}===]");
+			sw.WriteLine($"\taddi sp, sp, -{4*tsave}");
+			for (int j = 0; j < tsave; j++)
+				sw.WriteLine($"\tsw t{j}, {j*4}(sp)");
+			sw.WriteLine($"#[===LNK: End autosave===]");
+
+			//Call or inline
+			if (func.ForceInline) InlineFunc(func, sw);
+			else
+			{
+				sw.WriteLine("\taddi sp, sp, -4");
+				sw.WriteLine("\tsw ra, 0(sp)");
+				sw.WriteLine($"\tcall {func.Name}");
+				sw.WriteLine("\tlw ra, 0(sp)");
+				sw.WriteLine("\taddi sp, sp, 4");
+			}
+
+			//Pop tregs
+			if (tsave == 1) sw.WriteLine($"#[===LNK: Autorestore t0===]");
+			else sw.WriteLine($"#[===LNK: Autorestore t0-t{tsave-1}===]");
+			for (int j = 0; j < tsave; j++)
+				sw.WriteLine($"\tsw t{j}, {j*4}(sp)");
+			sw.WriteLine($"\taddi sp, sp, -{4*tsave}");
+			sw.WriteLine($"#[===LNK: End autorestore===]");
 		}
+
+		static void InlineFunc(FunctionDecl func, StreamWriter sw)
+		{
+			//TODO: Implement inlining
+		}
+
 
 
 
@@ -389,7 +448,6 @@ namespace RV_Bozoer
 		public string Filename { get; } = filename;
 		public int Line { get; } = line;
 		public bool Complete { get; private set; } = false;
-		public int References { get; private set; } = 0;
 
 
 		public static FunctionDecl? ParseHeader(string[] parts, string filename, int line)
@@ -430,15 +488,11 @@ namespace RV_Bozoer
 			Complete = true;
 		}
 
-		public void IncrementRefs()
-		{
-			References++;
-		}
-
 
 
         public override string ToString()
         {
-            return $"{Name}: autosave={AutoSave} forceinline={ForceInline} leaf={Leaf} savec={SaveCount} tregc={TempCount} filename={Filename} line={Line + 1} line_count={Lines.Count} complete={Complete} references={References}";        }
+            return $"{Name}: autosave={AutoSave} forceinline={ForceInline} leaf={Leaf} savec={SaveCount} tregc={TempCount} filename={Filename} line={Line + 1} line_count={Lines.Count} complete={Complete}";
+		}
     }
 }

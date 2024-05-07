@@ -23,11 +23,11 @@ fancyop:
 #
 # Before function call:
 #   If func is noinline and leaf:
-#    - Pushes ra
 #    - Pushes tX where X < min(tregs, func.tregc)
-#   If func if noinline and noleaf:
 #    - Pushes ra
+#   If func if noinline and noleaf:
 #    - Pushes tX where X < tregs
+#    - Pushes ra
 #   If func is forceinline and leaf:
 #    - Pushes tX where X < min(tregs, func.tregc)
 #    - Includes func code (and it's saves)
@@ -37,11 +37,11 @@ fancyop:
 #
 # After function return:
 #   If func is noinline and leaf:
+#    - Pops ra
 #    - Pops tX where X < min(tregs, func.tregc)
-#    - Pops ra
 #   If func is noinline and noleaf:
-#    - Pops tX where X < tregs
 #    - Pops ra
+#    - Pops tX where X < tregs
 #   If func is forceinline and noleaf:
 #    - Pops tX where X < min(tregs, func.tregc)
 #   If func is forceinline and leaf:
