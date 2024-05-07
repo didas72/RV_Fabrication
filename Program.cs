@@ -218,7 +218,6 @@ namespace RV_Bozoer
 			while (!sr.EndOfStream)
 			{
 				string line = sr.ReadLine() ?? "";
-				sw.WriteLine(line);
 				string trimmed = line.Trim();
 
 				if (trimmed.StartsWith("#;__IMPLEMENT:"))
@@ -231,6 +230,7 @@ namespace RV_Bozoer
 					string func_name = trimmed[11..];
 					InlineFunc(func_name, sw);
 				}
+				else sw.WriteLine(line);
 			}
 
 			sr.Close();
@@ -251,33 +251,74 @@ namespace RV_Bozoer
 				return;
 			}
 
-			sw.WriteLine($"# [==Implementation of {func.Name}==]");
-			sw.WriteLine($"# [=={func}==]");
+			sw.WriteLine($"#[==LNK: AUTOIMPL {func}==]");
 
 			//Write till reached label
-			bool found_label = false;
+			bool found = false;
 			int i;
 			for (i = 0; i < func.Lines.Count; i++)
 			{
 				string line = func.Lines[i];
 				sw.WriteLine(line);
-
 				if (line.Trim().StartsWith($"{func.Name}:"))
 				{
-					found_label = true;
+					found = true;
 					break;
 				}
 			}
-			if (!found_label)
+			if (!found)
 			{
 				ErrorMsg($"Failed to find label for function '{func.Name}'.");
 				Environment.Exit(2);
 			}
 
-			//TODO: Append saving of s0-sX
-			//TODO: Write till before 'ret'
-			//TODO: Append poping of s0-sX
-			//TODO: Append ret and anything after (check no double ret, add poping or error out?)
+			//Append saving of s0-sX
+			if (func.AutoSave && func.SaveCount != 0)
+			{
+				if (func.SaveCount == 1)
+					sw.WriteLine($"#[==LNK: Autosave s0==]");
+				else
+					sw.WriteLine($"#[==LNK: Autosave s0-s{func.SaveCount-1}==]");
+				sw.WriteLine($"\taddi sp, sp, -{4*func.SaveCount}");
+				for (int j = 0; j < func.SaveCount; j++)
+					sw.WriteLine($"\tsw s{j}, {j*4}(sp)");
+				sw.WriteLine($"#[===LNK: End autosave===]");
+			}
+
+			//Write till before 'ret'
+			found = false;
+			for (i++; i < func.Lines.Count; i++)
+			{
+				string line = func.Lines[i];
+				if (line.Trim().StartsWith($"ret"))
+				{
+					found = true;
+					break;
+				}
+				sw.WriteLine(line);
+			}
+			if (!found)
+			{
+				ErrorMsg($"Failed to find return for function '{func.Name}'.");
+				Environment.Exit(2);
+			}
+			
+			//Append popping of s0-sX
+			if (func.AutoSave && func.SaveCount != 0)
+			{
+				if (func.SaveCount == 1)
+					sw.WriteLine($"#[==LNK: Autorestore s0==]");
+				else
+					sw.WriteLine($"#[==LNK: Autorestore s0-s{func.SaveCount-1}==]");
+				for (int j = func.SaveCount - 1; j >= 0; j--)
+					sw.WriteLine($"\tlw s{j}, {j*4}(sp)");
+				sw.WriteLine($"\taddi sp, sp, {4*func.SaveCount}");
+				sw.WriteLine($"#[===LNK: End autorestore===]");
+			}
+
+			//Append ret and anything after
+			for (; i < func.Lines.Count - 1; i++) //Skip #;endfunc
+				sw.WriteLine(func.Lines[i]);
 		}
 
 		static void InlineFunc(string func_name, StreamWriter sw)
@@ -377,6 +418,8 @@ namespace RV_Bozoer
 
 			if (!int.TryParse(parts[5], out int tempcount))
 			{ Program.ErrorMsg($"funcdecl needs a non-negative integer <tregc>. '{parts[5]}' was found."); return null; }
+
+			//TODO: Check savecount and tempcount
 
 			return new FunctionDecl(parts[0], autosave, forceinline,
 				leaf, savecount, tempcount, [], filename, line);

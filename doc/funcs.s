@@ -9,8 +9,8 @@
 #   If func is autosave:
 #    - Pop registers s0-sX
 
-#fancyop => q = (a+b)/c && r = (a+b)%c
 #;funcdecl fancyop autosave noinline leaf 0 2
+#fancyop => q = (a+b)/c && r = (a+b)%c
 fancyop:
 	add t0, a0, a1
 	div a0, t1, a2
@@ -48,4 +48,3 @@ fancyop:
 #    - Pops tX where X < tregs
 
 #;funccall fancyop 0
-call fancyop
