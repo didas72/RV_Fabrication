@@ -189,10 +189,15 @@ namespace RV_Bozoer
 						break;
 
 					case "funccall":
-						//TODO: Decide on recursive calls/inlines (check cur_func_decl)
 						if (args.Length != 2)
 						{
 							ErrorMsg($"Preprocessor directive 'funccall' takes exactly two arguments. {args.Length} provided.");
+							PrintFileStack(path, i);
+							Environment.Exit(1);
+						}
+						if (args[1] == cur_func_decl?.Name)
+						{
+							ErrorMsg($"Inline function '{args[0]}' cannot call itself.");
 							PrintFileStack(path, i);
 							Environment.Exit(1);
 						}
@@ -269,6 +274,11 @@ namespace RV_Bozoer
 				InfoMsg($"Skipping implementation of '{func.Name}': no references.");
 				return;
 			}
+			if (func.ForceInline)
+			{
+				sw.WriteLine("# [===LNK: Removed due to forced inlining===]");
+				return;
+			}
 
 			sw.WriteLine($"#[===LNK: AUTOIMPL {func}===]");
 
@@ -308,13 +318,20 @@ namespace RV_Bozoer
 			found = false;
 			for (i++; i < func.Lines.Count; i++)
 			{
-				string line = func.Lines[i];
-				if (line.Trim().StartsWith($"ret"))
+				string trimmed = func.Lines[i].Trim();;
+				if (trimmed.StartsWith("ret"))
 				{
 					found = true;
 					break;
 				}
-				sw.WriteLine(line);
+				if (trimmed.StartsWith("#;__CALL:"))
+				{
+					string rem = trimmed[9..];
+					string[] parts = rem.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+					CallOrInline(parts[0], parts[1], sw);
+					continue;
+				}
+				sw.WriteLine(func.Lines[i]);
 			}
 			if (!found)
 			{
@@ -338,6 +355,8 @@ namespace RV_Bozoer
 			//Append ret and anything after
 			for (; i < func.Lines.Count - 1; i++) //Skip #;endfunc
 				sw.WriteLine(func.Lines[i]);
+
+			sw.WriteLine($"#[===LNK: ENDIMPL===]");
 		}
 
 		static void CallOrInline(string func_name, string tregs_str, StreamWriter sw)
@@ -358,12 +377,15 @@ namespace RV_Bozoer
 			int tsave = func.Leaf ? Math.Min(tregs, func.TempCount) : tregs;
 
 			//Push tregs
-			if (tsave == 1) sw.WriteLine($"#[===LNK: Autosave t0===]");
-			else sw.WriteLine($"#[===LNK: Autosave t0-t{tsave-1}===]");
-			sw.WriteLine($"\taddi sp, sp, -{4*tsave}");
-			for (int j = 0; j < tsave; j++)
-				sw.WriteLine($"\tsw t{j}, {j*4}(sp)");
-			sw.WriteLine($"#[===LNK: End autosave===]");
+			if (tsave > 0)
+			{
+				if (tsave == 1) sw.WriteLine($"#[===LNK: Autosave t0===]");
+				else sw.WriteLine($"#[===LNK: Autosave t0-t{tsave-1}===]");
+				sw.WriteLine($"\taddi sp, sp, -{4*tsave}");
+				for (int j = 0; j < tsave; j++)
+					sw.WriteLine($"\tsw t{j}, {j*4}(sp)");
+				sw.WriteLine($"#[===LNK: End autosave===]");
+			}
 
 			//Call or inline
 			if (func.ForceInline) InlineFunc(func, sw);
@@ -377,17 +399,96 @@ namespace RV_Bozoer
 			}
 
 			//Pop tregs
-			if (tsave == 1) sw.WriteLine($"#[===LNK: Autorestore t0===]");
-			else sw.WriteLine($"#[===LNK: Autorestore t0-t{tsave-1}===]");
-			for (int j = 0; j < tsave; j++)
-				sw.WriteLine($"\tsw t{j}, {j*4}(sp)");
-			sw.WriteLine($"\taddi sp, sp, -{4*tsave}");
-			sw.WriteLine($"#[===LNK: End autorestore===]");
+			if (tsave > 0)
+			{
+				if (tsave == 1) sw.WriteLine($"#[===LNK: Autorestore t0===]");
+				else sw.WriteLine($"#[===LNK: Autorestore t0-t{tsave-1}===]");
+				for (int j = 0; j < tsave; j++)
+					sw.WriteLine($"\tsw t{j}, {j*4}(sp)");
+				sw.WriteLine($"\taddi sp, sp, -{4*tsave}");
+				sw.WriteLine($"#[===LNK: End autorestore===]");
+			}
 		}
 
 		static void InlineFunc(FunctionDecl func, StreamWriter sw)
 		{
-			//TODO: Implement inlining
+			sw.WriteLine($"#[===LNK: INLINED {func}===]");
+
+			//Write till reached label
+			bool found = false;
+			int i;
+			for (i = 0; i < func.Lines.Count; i++)
+			{
+				string line = func.Lines[i];
+				if (line.Trim().StartsWith($"{func.Name}:"))
+				{
+					found = true;
+					break;
+				}
+				sw.WriteLine(line);
+			}
+			if (!found)
+			{
+				ErrorMsg($"Failed to find label for function '{func.Name}'.");
+				Environment.Exit(2);
+			}
+
+			//Append saving of s0-sX
+			if (func.AutoSave && func.SaveCount != 0)
+			{
+				if (func.SaveCount == 1)
+					sw.WriteLine($"#[===LNK: Autosave s0===]");
+				else
+					sw.WriteLine($"#[===LNK: Autosave s0-s{func.SaveCount-1}===]");
+				sw.WriteLine($"\taddi sp, sp, -{4*func.SaveCount}");
+				for (int j = 0; j < func.SaveCount; j++)
+					sw.WriteLine($"\tsw s{j}, {j*4}(sp)");
+				sw.WriteLine($"#[===LNK: End autosave===]");
+			}
+
+			//Write till before 'ret'
+			found = false;
+			for (i++; i < func.Lines.Count; i++)
+			{
+				string trimmed = func.Lines[i].Trim();;
+				if (trimmed.StartsWith("ret"))
+				{
+					found = true;
+					break;
+				}
+				if (trimmed.StartsWith("#;__CALL:"))
+				{
+					string rem = trimmed[9..];
+					string[] parts = rem.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+					CallOrInline(parts[0], parts[1], sw);
+					continue;
+				}
+				sw.WriteLine(func.Lines[i]);
+			}
+			if (!found)
+			{
+				ErrorMsg($"Failed to find return for function '{func.Name}'.");
+				Environment.Exit(2);
+			}
+			
+			//Append popping of s0-sX
+			if (func.AutoSave && func.SaveCount != 0)
+			{
+				if (func.SaveCount == 1)
+					sw.WriteLine($"#[===LNK: Autorestore s0===]");
+				else
+					sw.WriteLine($"#[===LNK: Autorestore s0-s{func.SaveCount-1}===]");
+				for (int j = func.SaveCount - 1; j >= 0; j--)
+					sw.WriteLine($"\tlw s{j}, {j*4}(sp)");
+				sw.WriteLine($"\taddi sp, sp, {4*func.SaveCount}");
+				sw.WriteLine($"#[===LNK: End autorestore===]");
+			}
+
+			//Skip ret and append anything after
+			for (i++; i < func.Lines.Count - 1; i++) //Skip #;endfunc
+				sw.WriteLine(func.Lines[i]);
+
+			sw.WriteLine($"#[===LNK: End inline===]");
 		}
 
 

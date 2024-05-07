@@ -4,8 +4,9 @@
 - [V] Includes
 - [V] Pseudo sections for includes
 - [V] Include guards
-- Better function support:
-  - Inlines
-  - Auto caller/calle actions
-- Macros
-- Push/Pop
+- [V] Better function support:
+  - [V] Inlines
+  - [V] Auto caller/calle actions
+  - [V] Recrusive function handling
+- [ ] Macros
+- [ ] Push/Pop
