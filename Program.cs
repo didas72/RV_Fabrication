@@ -251,7 +251,7 @@ namespace RV_Bozoer
 				return;
 			}
 
-			sw.WriteLine($"#[==LNK: AUTOIMPL {func}==]");
+			sw.WriteLine($"#[===LNK: AUTOIMPL {func}===]");
 
 			//Write till reached label
 			bool found = false;
@@ -276,9 +276,9 @@ namespace RV_Bozoer
 			if (func.AutoSave && func.SaveCount != 0)
 			{
 				if (func.SaveCount == 1)
-					sw.WriteLine($"#[==LNK: Autosave s0==]");
+					sw.WriteLine($"#[===LNK: Autosave s0===]");
 				else
-					sw.WriteLine($"#[==LNK: Autosave s0-s{func.SaveCount-1}==]");
+					sw.WriteLine($"#[===LNK: Autosave s0-s{func.SaveCount-1}===]");
 				sw.WriteLine($"\taddi sp, sp, -{4*func.SaveCount}");
 				for (int j = 0; j < func.SaveCount; j++)
 					sw.WriteLine($"\tsw s{j}, {j*4}(sp)");
@@ -307,9 +307,9 @@ namespace RV_Bozoer
 			if (func.AutoSave && func.SaveCount != 0)
 			{
 				if (func.SaveCount == 1)
-					sw.WriteLine($"#[==LNK: Autorestore s0==]");
+					sw.WriteLine($"#[===LNK: Autorestore s0===]");
 				else
-					sw.WriteLine($"#[==LNK: Autorestore s0-s{func.SaveCount-1}==]");
+					sw.WriteLine($"#[===LNK: Autorestore s0-s{func.SaveCount-1}===]");
 				for (int j = func.SaveCount - 1; j >= 0; j--)
 					sw.WriteLine($"\tlw s{j}, {j*4}(sp)");
 				sw.WriteLine($"\taddi sp, sp, {4*func.SaveCount}");
