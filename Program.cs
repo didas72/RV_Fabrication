@@ -183,7 +183,8 @@ namespace RV_Bozoer
 				string directive = split[0];
 				string[] args = split[1..];
 
-				if (commentLevel >= 1 && directive != "sect" && directive != "include")
+				if (commentLevel >= 1 && directive != "sect" && directive != "include" &&
+					!(cur_func_decl != null && directive == "funccall"))
 					(data_sect ? data_sw : text_sw)?.WriteLine(lines[i]);
 
 				switch (directive)
@@ -277,7 +278,13 @@ namespace RV_Bozoer
 							PrintFileStack(path, i);
 							Environment.Exit(1);
 						}
-						text_sw?.WriteLine($"#;__CALL:{args[0]} {args[1]}");
+						if (cur_func_decl == null)
+							text_sw?.WriteLine($"#;__CALL:{args[0]} {args[1]}");
+						else
+						{
+							cur_func_decl.Lines.RemoveAt(cur_func_decl.Lines.Count - 1);
+							cur_func_decl.Lines.Add($"#;__CALL:{args[0]} {args[1]}");
+						}
 						if (!references.TryAdd(args[0], 1)) references[args[0]]++;
 						break;
 
