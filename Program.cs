@@ -604,33 +604,33 @@ namespace RV_Bozoer
 		{
 			if (SaveCount == -1)
 			{
-				int lowest = -1;
+				int lowest = 0;
 
 				for (int i = 0; i < Lines.Count; i++)
 				{
 					string line = Lines[i].Split('#')[0].Trim(); //Remove comments/preprocessor and trim
-					for (int j = 0; j < 12; j++)
+					for (int j = lowest; j < 12; j++)
 						if (line.Contains($"s{j}"))
-							lowest = j;
+							lowest = j + 1;
 				}
 
-				SaveCount = lowest + 1;
+				SaveCount = lowest;
 			}
 
 			//TODO: Determine TempCount if set to -1
 			if (TempCount == -1)
 			{
-				int lowest = -1;
+				int lowest = 0;
 
 				for (int i = 0; i < Lines.Count; i++)
 				{
 					string line = Lines[i].Split('#')[0].Trim(); //Remove comments/preprocessor and trim
-					for (int j = 0; j < 7; j++)
+					for (int j = lowest; j < 7; j++)
 						if (line.Contains($"t{j}"))
-							lowest = j;
+							lowest = j + 1;
 				}
 
-				TempCount = lowest + 1;
+				TempCount = lowest;
 			}
 		}
 
