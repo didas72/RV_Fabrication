@@ -25,53 +25,36 @@ namespace RV_Bozoer
 		* 2 = Directives+Linker output
 		*/
 		private static int commentLevel = 2;
+		private static string mainPath = string.Empty;
 		
-
 
 
 		private static void Main(string[] args)
 		{
-			InfoMsg(programName);
-
-			if (args.Length <= 1)
-			{
-				WarnMsg("Usage: RV_Bozoer [flags] <src_path>");
-				Print("Flags:");
-				Print("\t -q => Only print errors.");
-				Print("\t -w => Print errors and warnings.");
-				Print("\t -l => Print errors, warnings and logs.");
-				Print("\t -c => Clean output. Removes directives and linker comments.");
-				Print("\t -d => Preserve directives.");
-				Print("\t -L => Preserve directives and include linker comments.");
-				Environment.Exit(1);
-			}
-
-			//TODO: Check flags
-			//TODO: Conditional prints/writes based on logLevel and commentLevel
-
-			string path = args[args.Length - 1];
+			Print(programName);
+			ParseArgs(args);
 
 			try
 			{
 				string data_path = Path.Combine(
-					Path.GetDirectoryName(args[0]) ?? "",
-					(Path.GetFileNameWithoutExtension(args[0]) ?? "") + "_data" +
-					(Path.GetExtension(args[0]) ?? "")
+					Path.GetDirectoryName(mainPath) ?? "",
+					(Path.GetFileNameWithoutExtension(mainPath) ?? "") + "_data" +
+					(Path.GetExtension(mainPath) ?? "")
 				);
 				string text_path = Path.Combine(
-					Path.GetDirectoryName(args[0]) ?? "",
-					(Path.GetFileNameWithoutExtension(args[0]) ?? "") + "_text" +
-					(Path.GetExtension(args[0]) ?? "")
+					Path.GetDirectoryName(mainPath) ?? "",
+					(Path.GetFileNameWithoutExtension(mainPath) ?? "") + "_text" +
+					(Path.GetExtension(mainPath) ?? "")
 				);
 				string processed_path = Path.Combine(
-					Path.GetDirectoryName(args[0]) ?? "",
-					(Path.GetFileNameWithoutExtension(args[0]) ?? "") + "_processed" +
-					(Path.GetExtension(args[0]) ?? "")
+					Path.GetDirectoryName(mainPath) ?? "",
+					(Path.GetFileNameWithoutExtension(mainPath) ?? "") + "_processed" +
+					(Path.GetExtension(mainPath) ?? "")
 				);
 				string final_path = Path.Combine(
-					Path.GetDirectoryName(args[0]) ?? "",
-					(Path.GetFileNameWithoutExtension(args[0]) ?? "") + "_final" +
-					(Path.GetExtension(args[0]) ?? "")
+					Path.GetDirectoryName(mainPath) ?? "",
+					(Path.GetFileNameWithoutExtension(mainPath) ?? "") + "_final" +
+					(Path.GetExtension(mainPath) ?? "")
 				);
 				if (File.Exists(data_path)) File.Delete(data_path);
 				if (File.Exists(text_path)) File.Delete(text_path);
@@ -81,7 +64,7 @@ namespace RV_Bozoer
 				data_sw = new(File.OpenWrite(data_path));
 				text_sw = new(File.OpenWrite(text_path));
 
-				ProcessFile(Path.GetFullPath(args[0]));
+				ProcessFile(Path.GetFullPath(mainPath));
 
 				data_sw.Close();
 				text_sw.Close();
@@ -114,6 +97,63 @@ namespace RV_Bozoer
 				InfoMsg(decl.ToString());
 		}
 
+		static void ParseArgs(string[] args)
+		{
+			if (args.Length < 1)
+			{
+				PrintUsage();
+				Environment.Exit(-1);
+			}
+
+			mainPath = args[args.Length-1];
+
+			for (int i = 0; i < args.Length - 1; i++)
+			{
+				switch (args[i])
+				{
+					case "-q":
+						logLevel = 0;
+						break;
+
+					case "-w":
+						logLevel = 1;
+						break;
+
+					case "-l":
+						logLevel = 2;
+						break;
+
+					case "-c":
+						commentLevel = 0;
+						break;
+					
+					case "-d":
+						commentLevel = 1;
+						break;
+
+					case "-L":
+						commentLevel = 2;
+						break;
+
+					default:
+						Environment.Exit(-1);
+						break;
+				}
+			}
+		}
+
+		static void PrintUsage()
+		{
+			WarnMsg("Usage: RV_Bozoer [flags] <src_path>");
+			Print("Flags:");
+			Print("\t -q => Only print errors.");
+			Print("\t -w => Print errors and warnings.");
+			Print("\t -l => Print errors, warnings and logs.");
+			Print("\t -c => Clean output. Removes directives and linker comments.");
+			Print("\t -d => Preserve directives.");
+			Print("\t -L => Preserve directives and include linker comments.");
+		}
+
 		static void ProcessFile(string path)
 		{
 			if (!File.Exists(path))
@@ -134,7 +174,7 @@ namespace RV_Bozoer
 				string line = lines[i].Trim();
 				cur_func_decl?.Lines.Add(lines[i]);
 				
-				if (!line.StartsWith("#;")) 
+				if (!line.StartsWith("#;"))
 				{
 					if (cur_func_decl == null) (data_sect ? data_sw : text_sw)?.WriteLine(lines[i]);
 					continue;
@@ -143,7 +183,7 @@ namespace RV_Bozoer
 				string directive = split[0];
 				string[] args = split[1..];
 
-				if (directive != "sect" && directive != "include")
+				if (commentLevel >= 1 && directive != "sect" && directive != "include")
 					(data_sect ? data_sw : text_sw)?.WriteLine(lines[i]);
 
 				switch (directive)
@@ -242,6 +282,7 @@ namespace RV_Bozoer
 						break;
 
 					default:
+						if (logLevel < 1) break;
 						WarnMsg($"Unknwon preprocessor directive: '{directive}'");
 						PrintFileStack(path, i);
 						Print("Ignoring...");
@@ -270,9 +311,7 @@ namespace RV_Bozoer
 			sw.WriteLine($"# [===Processed and 'linked' by {programName}===]");
 			sw.WriteLine("# [===Included files:===]");
 			foreach (string file in includedFiles)
-			{
 				sw.WriteLine($"# [==={file}===]");
-			}
 
 			while (!sr.EndOfStream)
 			{
@@ -312,11 +351,13 @@ namespace RV_Bozoer
 			}
 			if (func.ForceInline)
 			{
-				sw.WriteLine("# [===LNK: Removed due to forced inlining===]");
+				if (commentLevel >= 2)
+					sw.WriteLine("# [===LNK: Removed due to forced inlining===]");
 				return;
 			}
 
-			sw.WriteLine($"#[===LNK: AutoImpl {func}===]");
+			if (commentLevel >= 2)
+				sw.WriteLine($"#[===LNK: AutoImpl {func}===]");
 
 			//Write till reached label
 			bool found = false;
@@ -340,14 +381,18 @@ namespace RV_Bozoer
 			//Append saving of s0-sX
 			if (func.AutoSave && func.SaveCount != 0)
 			{
-				if (func.SaveCount == 1)
-					sw.WriteLine($"#[===LNK: AutoSave s0===]");
-				else
-					sw.WriteLine($"#[===LNK: AutoSave s0-s{func.SaveCount-1}===]");
+				if (commentLevel >= 2)
+				{
+					if (func.SaveCount == 1)
+						sw.WriteLine($"#[===LNK: AutoSave s0===]");
+					else
+						sw.WriteLine($"#[===LNK: AutoSave s0-s{func.SaveCount-1}===]");
+				}
 				sw.WriteLine($"\taddi sp, sp, -{4*func.SaveCount}");
 				for (int j = 0; j < func.SaveCount; j++)
 					sw.WriteLine($"\tsw s{j}, {j*4}(sp)");
-				sw.WriteLine($"#[===LNK: End AutoSave===]");
+				if (commentLevel >= 2)
+					sw.WriteLine($"#[===LNK: End AutoSave===]");
 			}
 
 			//Write till before 'ret'
@@ -378,21 +423,26 @@ namespace RV_Bozoer
 			//Append popping of s0-sX
 			if (func.AutoSave && func.SaveCount != 0)
 			{
-				if (func.SaveCount == 1)
-					sw.WriteLine($"#[===LNK: AutoRestore s0===]");
-				else
-					sw.WriteLine($"#[===LNK: AutoRestore s0-s{func.SaveCount-1}===]");
+				if (commentLevel >= 2)
+				{
+					if (func.SaveCount == 1)
+						sw.WriteLine($"#[===LNK: AutoRestore s0===]");
+					else
+						sw.WriteLine($"#[===LNK: AutoRestore s0-s{func.SaveCount-1}===]");
+				}
 				for (int j = func.SaveCount - 1; j >= 0; j--)
 					sw.WriteLine($"\tlw s{j}, {j*4}(sp)");
 				sw.WriteLine($"\taddi sp, sp, {4*func.SaveCount}");
-				sw.WriteLine($"#[===LNK: End AutoRestore===]");
+				if (commentLevel >= 2)
+					sw.WriteLine($"#[===LNK: End AutoRestore===]");
 			}
 
 			//Append ret and anything after
 			for (; i < func.Lines.Count - 1; i++) //Skip #;endfunc
 				sw.WriteLine(func.Lines[i]);
 
-			sw.WriteLine($"#[===LNK: End AutoImpl===]");
+			if (commentLevel >= 2)
+				sw.WriteLine($"#[===LNK: End AutoImpl===]");
 		}
 
 		static void CallOrInline(string func_name, string tregs_str, StreamWriter sw)
@@ -408,19 +458,24 @@ namespace RV_Bozoer
 				Environment.Exit(2);
 			}
 
-			sw.WriteLine($"#[===LNK: AutoCall {func.Name} (tregs={tregs})===]");
+			if (commentLevel >= 2)
+				sw.WriteLine($"#[===LNK: AutoCall {func.Name} (tregs={tregs})===]");
 
 			int tsave = func.Leaf ? Math.Min(tregs, func.TempCount) : tregs;
 
 			//Push tregs
 			if (tsave > 0)
 			{
-				if (tsave == 1) sw.WriteLine($"#[===LNK: AutoSave t0===]");
-				else sw.WriteLine($"#[===LNK: AutoSave t0-t{tsave-1}===]");
+				if (commentLevel >= 2)
+				{
+					if (tsave == 1) sw.WriteLine($"#[===LNK: AutoSave t0===]");
+					else sw.WriteLine($"#[===LNK: AutoSave t0-t{tsave-1}===]");
+				}
 				sw.WriteLine($"\taddi sp, sp, -{4*tsave}");
 				for (int j = 0; j < tsave; j++)
 					sw.WriteLine($"\tsw t{j}, {j*4}(sp)");
-				sw.WriteLine($"#[===LNK: End AutoSave===]");
+				if (commentLevel >= 2)
+					sw.WriteLine($"#[===LNK: End AutoSave===]");
 			}
 
 			//Call or inline
@@ -437,20 +492,26 @@ namespace RV_Bozoer
 			//Pop tregs
 			if (tsave > 0)
 			{
-				if (tsave == 1) sw.WriteLine($"#[===LNK: AutoRestore t0===]");
-				else sw.WriteLine($"#[===LNK: AutoRestore t0-t{tsave-1}===]");
+				if (commentLevel >= 2)
+				{
+					if (tsave == 1) sw.WriteLine($"#[===LNK: AutoRestore t0===]");
+					else sw.WriteLine($"#[===LNK: AutoRestore t0-t{tsave-1}===]");
+				}
 				for (int j = 0; j < tsave; j++)
 					sw.WriteLine($"\tsw t{j}, {j*4}(sp)");
 				sw.WriteLine($"\taddi sp, sp, -{4*tsave}");
-				sw.WriteLine($"#[===LNK: End AutoRestore===]");
+				if (commentLevel >= 2)
+					sw.WriteLine($"#[===LNK: End AutoRestore===]");
 			}
 		
-			sw.WriteLine($"#[===LNK: End AutoCall===]");
+			if (commentLevel >= 2)
+				sw.WriteLine($"#[===LNK: End AutoCall===]");
 		}
 
 		static void InlineFunc(FunctionDecl func, StreamWriter sw)
 		{
-			sw.WriteLine($"#[===LNK: Inline {func}===]");
+			if (commentLevel >= 2)
+				sw.WriteLine($"#[===LNK: Inline {func}===]");
 
 			//Write till reached label
 			bool found = false;
@@ -474,14 +535,18 @@ namespace RV_Bozoer
 			//Append saving of s0-sX
 			if (func.AutoSave && func.SaveCount != 0)
 			{
-				if (func.SaveCount == 1)
-					sw.WriteLine($"#[===LNK: AutoSave s0===]");
-				else
-					sw.WriteLine($"#[===LNK: AutoSave s0-s{func.SaveCount-1}===]");
+				if (commentLevel >= 2)
+				{
+					if (func.SaveCount == 1)
+						sw.WriteLine($"#[===LNK: AutoSave s0===]");
+					else
+						sw.WriteLine($"#[===LNK: AutoSave s0-s{func.SaveCount-1}===]");
+				}
 				sw.WriteLine($"\taddi sp, sp, -{4*func.SaveCount}");
 				for (int j = 0; j < func.SaveCount; j++)
 					sw.WriteLine($"\tsw s{j}, {j*4}(sp)");
-				sw.WriteLine($"#[===LNK: End AutoSave===]");
+				if (commentLevel >= 2)
+					sw.WriteLine($"#[===LNK: End AutoSave===]");
 			}
 
 			//Write till before 'ret'
@@ -512,21 +577,26 @@ namespace RV_Bozoer
 			//Append popping of s0-sX
 			if (func.AutoSave && func.SaveCount != 0)
 			{
-				if (func.SaveCount == 1)
-					sw.WriteLine($"#[===LNK: AutoRestore s0===]");
-				else
-					sw.WriteLine($"#[===LNK: AutoRestore s0-s{func.SaveCount-1}===]");
+				if (commentLevel >= 2)
+				{
+					if (func.SaveCount == 1)
+						sw.WriteLine($"#[===LNK: AutoRestore s0===]");
+					else
+						sw.WriteLine($"#[===LNK: AutoRestore s0-s{func.SaveCount-1}===]");
+				}
 				for (int j = func.SaveCount - 1; j >= 0; j--)
 					sw.WriteLine($"\tlw s{j}, {j*4}(sp)");
 				sw.WriteLine($"\taddi sp, sp, {4*func.SaveCount}");
-				sw.WriteLine($"#[===LNK: End AutoRestore===]");
+				if (commentLevel >= 2)
+					sw.WriteLine($"#[===LNK: End AutoRestore===]");
 			}
 
 			//Skip ret and append anything after
 			for (i++; i < func.Lines.Count - 1; i++) //Skip #;endfunc
 				sw.WriteLine(func.Lines[i]);
 
-			sw.WriteLine($"#[===LNK: End Inline===]");
+			if (commentLevel >= 2)
+				sw.WriteLine($"#[===LNK: End Inline===]");
 		}
 
 
@@ -547,12 +617,14 @@ namespace RV_Bozoer
 
 		public static void InfoMsg(string msg)
 		{
+			if (logLevel < 2) return;
 			Console.ForegroundColor = ConsoleColor.White;
 			Console.WriteLine(msg);
 		}
 
 		public static void WarnMsg(string msg)
 		{
+			if (logLevel < 1) return;
 			Console.ForegroundColor = ConsoleColor.Yellow;
 			Console.WriteLine(msg);
 		}

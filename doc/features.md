@@ -9,5 +9,5 @@
   - [V] Auto caller/calle actions
   - [V] Recrusive function handling
   - [V] Automatically determine savec and tregc in funcdecl
-- [ ] Configurable verbosity on stdout
-- [ ] Configurable verbosity on output file
+- [V] Configurable verbosity on stdout
+- [V] Configurable verbosity on output file
