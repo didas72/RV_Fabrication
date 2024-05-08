@@ -6,23 +6,50 @@ namespace RV_Bozoer
 {
 	static class Program
 	{
+		private const string programName = "RV_Bozoer v0.2 by Didas72";
 		private static readonly Stack<FileStackEntry> fileStack = new();
 		private static readonly List<string> includedFiles = [];
 		private static readonly Dictionary<string, FunctionDecl> functions = [];
 		private static readonly Dictionary<string, int> references = [];
 		private static StreamWriter? data_sw, text_sw;
 
+		/*
+		* 0 = Err
+		* 1 = Err+Warn
+		* 2 = Err+Warn+Info
+		*/
+		private static int logLevel = 1;
+		/*
+		* 0 = Header only
+		* 1 = Preserve directives*
+		* 2 = Directives+Linker output
+		*/
+		private static int commentLevel = 2;
+		
+
 
 
 		private static void Main(string[] args)
 		{
-			InfoMsg($"RV_Bozoer v0.1 by Didas72");
+			InfoMsg(programName);
 
-			if (args.Length != 1)
+			if (args.Length <= 1)
 			{
-				WarnMsg("Usage: RV_Bozoer <src_path>");
+				WarnMsg("Usage: RV_Bozoer [flags] <src_path>");
+				Print("Flags:");
+				Print("\t -q => Only print errors.");
+				Print("\t -w => Print errors and warnings.");
+				Print("\t -l => Print errors, warnings and logs.");
+				Print("\t -c => Clean output. Removes directives and linker comments.");
+				Print("\t -d => Preserve directives.");
+				Print("\t -L => Preserve directives and include linker comments.");
 				Environment.Exit(1);
 			}
+
+			//TODO: Check flags
+			//TODO: Conditional prints/writes based on logLevel and commentLevel
+
+			string path = args[args.Length - 1];
 
 			try
 			{
@@ -240,7 +267,7 @@ namespace RV_Bozoer
 			StreamReader sr = File.OpenText(processed);
 			StreamWriter sw = new(File.OpenWrite(final));
 
-			sw.WriteLine("# [===Processed and 'linked' by RV_Bozoer v0.1 by Didas72===]");
+			sw.WriteLine($"# [===Processed and 'linked' by {programName}===]");
 			sw.WriteLine("# [===Included files:===]");
 			foreach (string file in includedFiles)
 			{
@@ -381,7 +408,7 @@ namespace RV_Bozoer
 				Environment.Exit(2);
 			}
 
-			sw.WriteLine($"#[===LNK: AUTOCALL {func.Name} (tregs={tregs})===]");
+			sw.WriteLine($"#[===LNK: AutoCall {func.Name} (tregs={tregs})===]");
 
 			int tsave = func.Leaf ? Math.Min(tregs, func.TempCount) : tregs;
 
@@ -393,7 +420,7 @@ namespace RV_Bozoer
 				sw.WriteLine($"\taddi sp, sp, -{4*tsave}");
 				for (int j = 0; j < tsave; j++)
 					sw.WriteLine($"\tsw t{j}, {j*4}(sp)");
-				sw.WriteLine($"#[===LNK: End autoSave===]");
+				sw.WriteLine($"#[===LNK: End AutoSave===]");
 			}
 
 			//Call or inline
