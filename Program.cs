@@ -385,8 +385,8 @@ namespace RV_Bozoer
 				Environment.Exit(2);
 			}
 
-			//Append saving of s0-sX
-			if (func.AutoSave && func.SaveCount != 0)
+			//Append saving of ra and s0-sX
+			if ((func.AutoSave && func.SaveCount != 0) || func.Leaf == 0)
 			{
 				if (commentLevel >= 2)
 				{
@@ -395,9 +395,11 @@ namespace RV_Bozoer
 					else
 						sw.WriteLine($"#[===LNK: AutoSave s0-s{func.SaveCount-1}===]");
 				}
-				sw.WriteLine($"\taddi sp, sp, -{4*func.SaveCount}");
+				sw.WriteLine($"\taddi sp, sp, -{4*(1 + func.SaveCount - func.Leaf)}");
 				for (int j = 0; j < func.SaveCount; j++)
-					sw.WriteLine($"\tsw s{j}, {j*4}(sp)");
+					sw.WriteLine($"\tsw s{j}, {4*j}(sp)");
+				if (func.Leaf == 0)
+					sw.WriteLine($"\tsw ra, {4*func.SaveCount}(sp)");
 				if (commentLevel >= 2)
 					sw.WriteLine($"#[===LNK: End AutoSave===]");
 			}
@@ -428,7 +430,7 @@ namespace RV_Bozoer
 			}
 			
 			//Append popping of s0-sX
-			if (func.AutoSave && func.SaveCount != 0)
+			if ((func.AutoSave && func.SaveCount != 0) || func.Leaf == 0)
 			{
 				if (commentLevel >= 2)
 				{
@@ -437,9 +439,11 @@ namespace RV_Bozoer
 					else
 						sw.WriteLine($"#[===LNK: AutoRestore s0-s{func.SaveCount-1}===]");
 				}
+				if (func.Leaf == 0)
+					sw.WriteLine($"\tlw ra, {4*func.SaveCount}(sp)");
 				for (int j = func.SaveCount - 1; j >= 0; j--)
-					sw.WriteLine($"\tlw s{j}, {j*4}(sp)");
-				sw.WriteLine($"\taddi sp, sp, {4*func.SaveCount}");
+					sw.WriteLine($"\tlw s{j}, {4*j}(sp)");
+				sw.WriteLine($"\taddi sp, sp, {4*(1 + func.SaveCount - func.Leaf)}");
 				if (commentLevel >= 2)
 					sw.WriteLine($"#[===LNK: End AutoRestore===]");
 			}
@@ -468,7 +472,7 @@ namespace RV_Bozoer
 			if (commentLevel >= 2)
 				sw.WriteLine($"#[===LNK: AutoCall {func.Name} (tregs={tregs})===]");
 
-			int tsave = func.Leaf ? Math.Min(tregs, func.TempCount) : tregs;
+			int tsave = (func.Leaf == 1) ? Math.Min(tregs, func.TempCount) : tregs;
 
 			//Push tregs
 			if (tsave > 0)
@@ -480,21 +484,14 @@ namespace RV_Bozoer
 				}
 				sw.WriteLine($"\taddi sp, sp, -{4*tsave}");
 				for (int j = 0; j < tsave; j++)
-					sw.WriteLine($"\tsw t{j}, {j*4}(sp)");
+					sw.WriteLine($"\tsw t{j}, {4*j}(sp)");
 				if (commentLevel >= 2)
 					sw.WriteLine($"#[===LNK: End AutoSave===]");
 			}
 
 			//Call or inline
 			if (func.ForceInline) InlineFunc(func, sw);
-			else
-			{
-				sw.WriteLine("\taddi sp, sp, -4");
-				sw.WriteLine("\tsw ra, 0(sp)");
-				sw.WriteLine($"\tcall {func.Name}");
-				sw.WriteLine("\tlw ra, 0(sp)");
-				sw.WriteLine("\taddi sp, sp, 4");
-			}
+			else sw.WriteLine($"\tcall {func.Name}");
 
 			//Pop tregs
 			if (tsave > 0)
@@ -506,7 +503,7 @@ namespace RV_Bozoer
 				}
 				for (int j = 0; j < tsave; j++)
 					sw.WriteLine($"\tsw t{j}, {j*4}(sp)");
-				sw.WriteLine($"\taddi sp, sp, -{4*tsave}");
+				sw.WriteLine($"\taddi sp, sp, {4*tsave}");
 				if (commentLevel >= 2)
 					sw.WriteLine($"#[===LNK: End AutoRestore===]");
 			}
@@ -651,14 +648,14 @@ namespace RV_Bozoer
     }
 
 	class FunctionDecl(string name, 
-		bool autosave, bool forceinline, bool leaf,
+		bool autosave, bool forceinline, int leaf,
 		int savecount, int tempcount,
 		List<string> lines, string filename, int line)
 	{
 		public string Name { get; } = name;
 		public bool AutoSave { get; } = autosave;
 		public bool ForceInline { get; } = forceinline;
-		public bool Leaf { get; } = leaf;
+		public int Leaf { get; private set; } = leaf;
 		public int SaveCount { get; private set; } = savecount;
 		public int TempCount { get; private set; } = tempcount;
 		public List<string> Lines { get; } = lines;
@@ -674,7 +671,7 @@ namespace RV_Bozoer
 
 			bool autosave = false;
 			bool forceinline = false;
-			bool leaf = false;
+			int leaf = -1;
 			int savecount, tempcount;
 
 			if (parts[1] == "autosave") autosave = true;
@@ -685,9 +682,10 @@ namespace RV_Bozoer
 			else if (parts[2] != "noinline")
 			{ Program.ErrorMsg($"funcdecl needs either 'forceinline' or 'noinline'. '{parts[2]}' was found."); return null; }
 
-			if (parts[3] == "leaf") leaf = true;
-			else if (parts[3] != "noleaf")
-			{ Program.ErrorMsg($"funcdecl needs either 'leaf' or 'noleaf'. '{parts[3]}' was found."); return null; }
+			if (parts[3] == "leaf") leaf = 1;
+			else if (parts[3] == "noleaf") leaf = 0;
+			else if (parts[3] != "autoleaf")
+			{ Program.ErrorMsg($"funcdecl needs either 'leaf', 'noleaf' or 'autoleaf'. '{parts[3]}' was found."); return null; }
 
 			if (parts[4] == "?") savecount = -1;
 			else if (!int.TryParse(parts[4], out savecount) || savecount < 0 || savecount > 12)
@@ -708,6 +706,21 @@ namespace RV_Bozoer
 
 		public void DetermineAutos()
 		{
+			if (Leaf == -1)
+			{
+				Leaf = 1;
+
+				for (int i = 0; i < Lines.Count; i++)
+				{
+					string line = Lines[i].Trim();
+					if (line.StartsWith("#;__CALL:"))
+					{
+						Leaf = 0;
+						break;
+					}
+				}
+			}
+
 			if (SaveCount == -1)
 			{
 				int lowest = 0;
@@ -723,7 +736,6 @@ namespace RV_Bozoer
 				SaveCount = lowest;
 			}
 
-			//TODO: Determine TempCount if set to -1
 			if (TempCount == -1)
 			{
 				int lowest = 0;
