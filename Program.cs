@@ -31,7 +31,7 @@ namespace RV_Bozoer
 
 		private static void Main(string[] args)
 		{
-			Print(programName);
+			Print(programName, ConsoleColor.White);
 			ParseArgs(args);
 
 			try
@@ -88,7 +88,7 @@ namespace RV_Bozoer
 				Environment.Exit(-1);
 			}
 
-			InfoMsg("Processing complete.");
+			Print("Processing complete.", ConsoleColor.Green);
 			InfoMsg("Files included:");
 			foreach (string file in includedFiles)
 				InfoMsg("\t" + file);
@@ -519,7 +519,10 @@ namespace RV_Bozoer
 
 			//Write till reached label
 			bool found = false;
-			int i;
+			int inlineCount = func.InlineCount();
+			List<string> localLabels = new();
+			string? label;
+			int i, iCopy;
 			for (i = 0; i < func.Lines.Count; i++)
 			{
 				string line = func.Lines[i];
@@ -555,22 +558,39 @@ namespace RV_Bozoer
 
 			//Write till before 'ret'
 			found = false;
-			for (i++; i < func.Lines.Count; i++)
+			iCopy = ++i;
+			for (; i < func.Lines.Count; i++) //Label searching pass
 			{
-				string trimmed = func.Lines[i].Trim();;
+				string trimmed = func.Lines[i].Split('#')[0].Trim(); //Ignore comments
+				if (trimmed.Contains(":")) //Rename inlined labels
+				{
+					string line = func.Lines[i];
+					int index = line.IndexOf(":");
+					localLabels.Add(line[..index].TrimStart());
+				}
+			}
+			for (i = iCopy; i < func.Lines.Count; i++) //Actual writing pass
+			{
+				string trimmed = func.Lines[i].Split('#')[0].Trim(); //Ignore comments
 				if (trimmed.StartsWith("ret"))
 				{
 					found = true;
 					break;
 				}
-				if (trimmed.StartsWith("#;__CALL:"))
+				else if (trimmed.StartsWith("#;__CALL:"))
 				{
 					string rem = trimmed[9..];
 					string[] parts = rem.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 					CallOrInline(parts[0], parts[1], sw);
-					continue;
 				}
-				sw.WriteLine(func.Lines[i]);
+				else if ((label = localLabels.Find((string s) => trimmed.Contains(s))) != null) //Rename inlined labels
+				{
+					string line = func.Lines[i];
+					int index = line.IndexOf(":");
+					sw.WriteLine(line.Replace(label, $"{label}_inline{inlineCount}"));
+				}
+				else
+					sw.WriteLine(func.Lines[i]);
 			}
 			if (!found)
 			{
@@ -619,6 +639,12 @@ namespace RV_Bozoer
 			Console.WriteLine(msg);
 		}
 
+		public static void Print(string msg, ConsoleColor color)
+		{
+			Console.ForegroundColor = color;
+			Console.WriteLine(msg);
+		}
+
 		public static void InfoMsg(string msg)
 		{
 			if (logLevel < 2) return;
@@ -662,6 +688,8 @@ namespace RV_Bozoer
 		public string Filename { get; } = filename;
 		public int Line { get; } = line;
 		public bool Complete { get; private set; } = false;
+
+		private int inlineCount = 0;
 
 
 		public static FunctionDecl? ParseHeader(string[] parts, string filename, int line)
@@ -751,6 +779,8 @@ namespace RV_Bozoer
 				TempCount = lowest;
 			}
 		}
+
+		public int InlineCount() => ++inlineCount;
 
 
 
