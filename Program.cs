@@ -408,7 +408,7 @@ namespace RV_Bozoer
 			found = false;
 			for (i++; i < func.Lines.Count; i++)
 			{
-				string trimmed = func.Lines[i].Trim();;
+				string trimmed = func.Lines[i].Trim();
 				if (trimmed.StartsWith("ret"))
 				{
 					found = true;
@@ -577,8 +577,9 @@ namespace RV_Bozoer
 					found = true;
 					break;
 				}
-				else if (trimmed.StartsWith("#;__CALL:"))
+				else if (func.Lines[i].Trim().StartsWith("#;__CALL:"))
 				{
+					trimmed = func.Lines[i].Trim();
 					string rem = trimmed[9..];
 					string[] parts = rem.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 					CallOrInline(parts[0], parts[1], sw);
