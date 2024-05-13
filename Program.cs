@@ -20,11 +20,12 @@ namespace RV_Bozoer
 		*/
 		private static int logLevel = 1;
 		/*
-		* 0 = Header only
-		* 1 = Preserve directives*
-		* 2 = Directives+Linker output
+		* 0 = Strip comment-only and blank lines
+		* 1 = Header only
+		* 2 = Preserve directives*
+		* 3 = Directives+Linker output
 		*/
-		private static int commentLevel = 2;
+		private static int commentLevel = 3;
 		private static string mainPath = string.Empty;
 		
 
@@ -123,16 +124,20 @@ namespace RV_Bozoer
 						logLevel = 2;
 						break;
 
-					case "-c":
+					case "-s":
 						commentLevel = 0;
+						break;
+
+					case "-c":
+						commentLevel = 1;
 						break;
 					
 					case "-d":
-						commentLevel = 1;
+						commentLevel = 2;
 						break;
 
 					case "-L":
-						commentLevel = 2;
+						commentLevel = 3;
 						break;
 
 					default:
@@ -149,6 +154,7 @@ namespace RV_Bozoer
 			Print("\t -q => Only print errors.");
 			Print("\t -w => Print errors and warnings.");
 			Print("\t -l => Print errors, warnings and logs.");
+			Print("\t -s => Stripped output. Removes all comment-only and blank lines.");
 			Print("\t -c => Clean output. Removes directives and linker comments.");
 			Print("\t -d => Preserve directives.");
 			Print("\t -L => Preserve directives and include linker comments.");
@@ -172,18 +178,21 @@ namespace RV_Bozoer
 			for (int i = 0; i < lines.Length; i++)
 			{
 				string line = lines[i].Trim();
-				cur_func_decl?.Lines.Add(lines[i]);
+				if (!((string.IsNullOrWhiteSpace(line) || (line.StartsWith("#") && !line.StartsWith("#!"))) && commentLevel <= 0))
+					cur_func_decl?.Lines.Add(lines[i]);
 				
 				if (!line.StartsWith("#;"))
 				{
-					if (cur_func_decl == null) (data_sect ? data_sw : text_sw)?.WriteLine(lines[i]);
+					if (cur_func_decl == null &&
+						!((string.IsNullOrWhiteSpace(line) || (line.StartsWith("#") && !line.StartsWith("#!"))) && commentLevel <= 0))
+						(data_sect ? data_sw : text_sw)?.WriteLine(lines[i]);
 					continue;
 				}
 				string[] split = line[2..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
 				string directive = split[0];
 				string[] args = split[1..];
 
-				if (commentLevel >= 1 && directive != "sect" && directive != "include" &&
+				if (commentLevel >= 2 && directive != "sect" && directive != "include" &&
 					!(cur_func_decl != null && directive == "funccall"))
 					(data_sect ? data_sw : text_sw)?.WriteLine(lines[i]);
 
@@ -358,12 +367,12 @@ namespace RV_Bozoer
 			}
 			if (func.ForceInline)
 			{
-				if (commentLevel >= 2)
+				if (commentLevel >= 3)
 					sw.WriteLine("# [===LNK: Removed due to forced inlining===]");
 				return;
 			}
 
-			if (commentLevel >= 2)
+			if (commentLevel >= 3)
 				sw.WriteLine($"#[===LNK: AutoImpl {func}===]");
 
 			//Write till reached label
@@ -388,7 +397,7 @@ namespace RV_Bozoer
 			//Append saving of ra and s0-sX
 			if ((func.AutoSave && func.SaveCount != 0) || func.Leaf == 0)
 			{
-				if (commentLevel >= 2)
+				if (commentLevel >= 3)
 				{
 					if (func.SaveCount == 1)
 						sw.WriteLine($"#[===LNK: AutoSave s0===]");
@@ -400,7 +409,7 @@ namespace RV_Bozoer
 					sw.WriteLine($"\tsw s{j}, {4*j}(sp)");
 				if (func.Leaf == 0)
 					sw.WriteLine($"\tsw ra, {4*func.SaveCount}(sp)");
-				if (commentLevel >= 2)
+				if (commentLevel >= 3)
 					sw.WriteLine($"#[===LNK: End AutoSave===]");
 			}
 
@@ -432,7 +441,7 @@ namespace RV_Bozoer
 			//Append popping of s0-sX
 			if ((func.AutoSave && func.SaveCount != 0) || func.Leaf == 0)
 			{
-				if (commentLevel >= 2)
+				if (commentLevel >= 3)
 				{
 					if (func.SaveCount == 1)
 						sw.WriteLine($"#[===LNK: AutoRestore s0===]");
@@ -444,7 +453,7 @@ namespace RV_Bozoer
 				for (int j = func.SaveCount - 1; j >= 0; j--)
 					sw.WriteLine($"\tlw s{j}, {4*j}(sp)");
 				sw.WriteLine($"\taddi sp, sp, {4*(1 + func.SaveCount - func.Leaf)}");
-				if (commentLevel >= 2)
+				if (commentLevel >= 3)
 					sw.WriteLine($"#[===LNK: End AutoRestore===]");
 			}
 
@@ -452,7 +461,7 @@ namespace RV_Bozoer
 			for (; i < func.Lines.Count - 1; i++) //Skip #;endfunc
 				sw.WriteLine(func.Lines[i]);
 
-			if (commentLevel >= 2)
+			if (commentLevel >= 3)
 				sw.WriteLine($"#[===LNK: End AutoImpl===]");
 		}
 
@@ -469,7 +478,7 @@ namespace RV_Bozoer
 				Environment.Exit(2);
 			}
 
-			if (commentLevel >= 2)
+			if (commentLevel >= 3)
 				sw.WriteLine($"#[===LNK: AutoCall {func.Name} (tregs={tregs})===]");
 
 			int tsave = (func.Leaf == 1) ? Math.Min(tregs, func.TempCount) : tregs;
@@ -477,7 +486,7 @@ namespace RV_Bozoer
 			//Push tregs
 			if (tsave > 0)
 			{
-				if (commentLevel >= 2)
+				if (commentLevel >= 3)
 				{
 					if (tsave == 1) sw.WriteLine($"#[===LNK: AutoSave t0===]");
 					else sw.WriteLine($"#[===LNK: AutoSave t0-t{tsave-1}===]");
@@ -485,7 +494,7 @@ namespace RV_Bozoer
 				sw.WriteLine($"\taddi sp, sp, -{4*tsave}");
 				for (int j = 0; j < tsave; j++)
 					sw.WriteLine($"\tsw t{j}, {4*j}(sp)");
-				if (commentLevel >= 2)
+				if (commentLevel >= 3)
 					sw.WriteLine($"#[===LNK: End AutoSave===]");
 			}
 
@@ -496,7 +505,7 @@ namespace RV_Bozoer
 			//Pop tregs
 			if (tsave > 0)
 			{
-				if (commentLevel >= 2)
+				if (commentLevel >= 3)
 				{
 					if (tsave == 1) sw.WriteLine($"#[===LNK: AutoRestore t0===]");
 					else sw.WriteLine($"#[===LNK: AutoRestore t0-t{tsave-1}===]");
@@ -504,17 +513,17 @@ namespace RV_Bozoer
 				for (int j = 0; j < tsave; j++)
 					sw.WriteLine($"\tsw t{j}, {j*4}(sp)");
 				sw.WriteLine($"\taddi sp, sp, {4*tsave}");
-				if (commentLevel >= 2)
+				if (commentLevel >= 3)
 					sw.WriteLine($"#[===LNK: End AutoRestore===]");
 			}
 		
-			if (commentLevel >= 2)
+			if (commentLevel >= 3)
 				sw.WriteLine($"#[===LNK: End AutoCall===]");
 		}
 
 		static void InlineFunc(FunctionDecl func, StreamWriter sw)
 		{
-			if (commentLevel >= 2)
+			if (commentLevel >= 3)
 				sw.WriteLine($"#[===LNK: Inline {func}===]");
 
 			//Write till reached label
@@ -542,7 +551,7 @@ namespace RV_Bozoer
 			//Append saving of s0-sX
 			if (func.AutoSave && func.SaveCount != 0)
 			{
-				if (commentLevel >= 2)
+				if (commentLevel >= 3)
 				{
 					if (func.SaveCount == 1)
 						sw.WriteLine($"#[===LNK: AutoSave s0===]");
@@ -552,7 +561,7 @@ namespace RV_Bozoer
 				sw.WriteLine($"\taddi sp, sp, -{4*func.SaveCount}");
 				for (int j = 0; j < func.SaveCount; j++)
 					sw.WriteLine($"\tsw s{j}, {j*4}(sp)");
-				if (commentLevel >= 2)
+				if (commentLevel >= 3)
 					sw.WriteLine($"#[===LNK: End AutoSave===]");
 			}
 
@@ -602,7 +611,7 @@ namespace RV_Bozoer
 			//Append popping of s0-sX
 			if (func.AutoSave && func.SaveCount != 0)
 			{
-				if (commentLevel >= 2)
+				if (commentLevel >= 3)
 				{
 					if (func.SaveCount == 1)
 						sw.WriteLine($"#[===LNK: AutoRestore s0===]");
@@ -612,7 +621,7 @@ namespace RV_Bozoer
 				for (int j = func.SaveCount - 1; j >= 0; j--)
 					sw.WriteLine($"\tlw s{j}, {j*4}(sp)");
 				sw.WriteLine($"\taddi sp, sp, {4*func.SaveCount}");
-				if (commentLevel >= 2)
+				if (commentLevel >= 3)
 					sw.WriteLine($"#[===LNK: End AutoRestore===]");
 			}
 
@@ -620,7 +629,7 @@ namespace RV_Bozoer
 			for (i++; i < func.Lines.Count - 1; i++) //Skip #;endfunc
 				sw.WriteLine(func.Lines[i]);
 
-			if (commentLevel >= 2)
+			if (commentLevel >= 3)
 				sw.WriteLine($"#[===LNK: End Inline===]");
 		}
 
