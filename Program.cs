@@ -6,7 +6,7 @@ namespace RV_Bozoer
 {
 	static class Program
 	{
-		private const string programName = "RV_Bozoer v0.2 by Didas72";
+		private const string programName = "RV_Fabrication v0.3 by Didas72";
 
 		/*
 		* 0 = Err
@@ -17,7 +17,10 @@ namespace RV_Bozoer
 		private static string mainPath = string.Empty;
 
 		private static readonly List<string> includedFiles = [];
-		private static readonly List<Function> functions = [];
+		private static readonly Dictionary<string, Function> functions = [];
+		private static readonly List<string> poisonedSymbols = [];
+		private static readonly Dictionary<string, string> imacros = [];
+		private static readonly Dictionary<string, Macro> macros = [];
 
 
 
@@ -32,6 +35,8 @@ namespace RV_Bozoer
 			StreamWriter sw = new(blobPath);
 			IncludePass(mainPath, sw);
 			sw.Close();
+
+			SymbolSearchPass(blobPath);
 		}
 
 
@@ -92,25 +97,24 @@ namespace RV_Bozoer
 					case "include":
 					case "endfunc":
 					case "funccall":
+					case "namereg":
 					case "endmacro":
 						break; //Ignore
 
 					case "funcdecl":
-						if (args.Length < 1 || args.Length > 3)
-						{
-							ErrorMsg($"Directive funcdecl requires 1-3 arguments. {args.Length} provided.");
-							Environment.Exit(1);
-						}
-						functions.Add(new(args[0]));
+						DeclareFunction(args);
 						break;
 
 					case "poison":
-						if (args.Length < 1)
-						{
-							ErrorMsg($"Directive poison requires at least one argument. None provided.");
-							Environment.Exit(1);
-						}
-						//TODO: Add to list
+						PoisonSymbol(args);
+						break;
+
+					case "imacro":
+						DeclareIMacro(args);
+						break;
+
+					case "macro":
+						DeclareMacro(args);
 						break;
 
 					default:
@@ -119,11 +123,7 @@ namespace RV_Bozoer
 				}
 			}
 
-            //TODO: Find poisons
-            //TODO: Find imacros
-            //TODO: Find macros
-
-            sr.Close();
+			sr.Close();
 		}
 
 
@@ -149,6 +149,69 @@ namespace RV_Bozoer
 			string[] parts = cleaned.Split(' ');
 			args = (parts.Length >= 2) ? parts[1..] : [];
 			return parts[0][2..];
+		}
+
+
+
+		private static void DeclareFunction(string[] args)
+		{
+			if (args.Length < 1 || args.Length > 3)
+			{
+				ErrorMsg($"Directive funcdecl requires 1-3 arguments. {args.Length} provided.");
+				Environment.Exit(2);
+			}
+			string name = args[0];
+			if (functions.ContainsKey(name))
+			{
+				ErrorMsg($"Function '{name}' is already defined.");
+				Environment.Exit(2);
+			}
+			functions.Add(name, new(name));
+		}
+		private static void PoisonSymbol(string[] args)
+		{
+			if (args.Length < 1)
+			{
+				ErrorMsg($"Directive poison requires at least one argument. None provided.");
+				Environment.Exit(2);
+			}
+			string symbol = args[0];
+			if (poisonedSymbols.Contains(symbol))
+			{
+				WarnMsg($"Symbol '{symbol}' is already poisoned. Ignoring...");
+				return;
+			}
+			poisonedSymbols.Add(symbol);
+		}
+		private static void DeclareIMacro(string[] args)
+		{
+			if (args.Length != 2)
+			{
+				ErrorMsg($"Directive imacro requires exactly two arguments. {args.Length} provided.");
+				Environment.Exit(2);
+			}
+			string name = args[0], content = args[1];
+			if (imacros.ContainsKey(name))
+			{
+				ErrorMsg($"IMacro '{name}' is already defined.");
+				Environment.Exit(2);
+			}
+			imacros.Add(name, content);
+		}
+		private static void DeclareMacro(string[] args)
+		{
+			if (args.Length < 2)
+			{
+				ErrorMsg($"Directive macro requires at least two arguments. {args.Length} provided.");
+				Environment.Exit(2);
+			}
+			string name = args[0]; string[] macro_args = args[1..];
+			if (macros.ContainsKey(name))
+			{
+				ErrorMsg($"Macro '{name}' is already defined.");
+				Environment.Exit(2);
+			}
+			macros.Add(name, new(name, macro_args));
 		}
 		
 
@@ -185,8 +248,14 @@ namespace RV_Bozoer
 		}
 	}
 
-	internal class Function (string name)
+	internal class Function(string name)
 	{
 		public string Name { get; } = name;
+	}
+
+	internal class Macro(string name, string[] args)
+	{
+		public string Name { get; } = name;
+		public string[] Args { get; } = args;
 	}
 }
