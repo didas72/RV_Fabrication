@@ -16,11 +16,12 @@ namespace RV_Bozoer
 		private static int logLevel = 1;
 		private static string mainPath = string.Empty;
 
-        private static readonly List<string> includedFiles = [];
+		private static readonly List<string> includedFiles = [];
+		private static readonly List<Function> functions = [];
 
 
 
-        private static void Main(string[] args)
+		private static void Main(string[] args)
 		{
 			Print(programName, ConsoleColor.White);
 
@@ -28,7 +29,7 @@ namespace RV_Bozoer
 
 			string blobPath = Path.ChangeExtension(mainPath, ".blob.s");
 
-            StreamWriter sw = new(blobPath);
+			StreamWriter sw = new(blobPath);
 			IncludePass(mainPath, sw);
 			sw.Close();
 		}
@@ -40,10 +41,10 @@ namespace RV_Bozoer
 			StreamReader sr = new(path);
 			int lineNum = 0;
 
-            while (!sr.EndOfStream)
+			while (!sr.EndOfStream)
 			{
 				string? srcLine = sr.ReadLine();
-                string line = CleanLine(srcLine);
+				string line = CleanLine(srcLine);
 				++lineNum;
 
 				if (IsDirective(line))
@@ -58,8 +59,8 @@ namespace RV_Bozoer
 						Environment.Exit(1);
 					}
 
-                    sw.WriteLine(srcLine);
-                    string filePath = Path.GetFullPath(args[0]);
+					sw.WriteLine(srcLine);
+					string filePath = Path.GetFullPath(args[0]);
 					if (!includedFiles.Contains(filePath))
 					{
 						includedFiles.Add(filePath);
@@ -70,7 +71,7 @@ namespace RV_Bozoer
 
 			includePass_skip_include:
 				sw.WriteLine(srcLine);
-            }
+			}
 
 			sr.Close();
 		}
@@ -79,11 +80,50 @@ namespace RV_Bozoer
 		{
 			StreamReader sr = new(blobPath);
 
-			//TODO: Find functions
-			//TODO: Find macros
-			//TODO: Find poisons
+			while (!sr.EndOfStream)
+			{
+				string clean = CleanLine(sr.ReadLine());
+				if (!IsDirective(clean)) continue;
+				string directive = GetDirective(clean, out string[] args);
 
-			sr.Close();
+				switch (directive)
+				{
+					case "sect":
+					case "include":
+					case "endfunc":
+					case "funccall":
+					case "endmacro":
+						break; //Ignore
+
+					case "funcdecl":
+						if (args.Length < 1 || args.Length > 3)
+						{
+							ErrorMsg($"Directive funcdecl requires 1-3 arguments. {args.Length} provided.");
+							Environment.Exit(1);
+						}
+						functions.Add(new(args[0]));
+						break;
+
+					case "poison":
+						if (args.Length < 1)
+						{
+							ErrorMsg($"Directive poison requires at least one argument. None provided.");
+							Environment.Exit(1);
+						}
+						//TODO: Add to list
+						break;
+
+					default:
+						WarnMsg($"Unknown directive '{directive}'. Skipping...");
+						break;
+				}
+			}
+
+            //TODO: Find poisons
+            //TODO: Find imacros
+            //TODO: Find macros
+
+            sr.Close();
 		}
 
 
@@ -102,7 +142,7 @@ namespace RV_Bozoer
 				return trimmed[(directive_idx)..];
 
 			return trimmed[..comment_idx];
-        }
+		}
 		private static bool IsDirective(string cleaned) => cleaned.StartsWith("#;");
 		private static string GetDirective(string cleaned, out string[] args)
 		{
@@ -145,8 +185,8 @@ namespace RV_Bozoer
 		}
 	}
 
-	internal class Function
+	internal class Function (string name)
 	{
-		public string Name { get; }
+		public string Name { get; } = name;
 	}
 }

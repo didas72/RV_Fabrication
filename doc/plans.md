@@ -30,15 +30,15 @@ Copied/updated from old version:
 - `sect <section>`
   - `section` MUST be one of header/data/mid/text/footer
 - `funcdecl <name> [regsavehint] [inlinehint]`
-  - `regsavehint` MUST be one of save/nosave
-  - `inlinehint` MUST be one of aggressiveinline/noinline/autoinline
+  - `regsavehint` MUST be one of save/nosave, defaults to save
+  - `inlinehint` MUST be one of aggressiveinline/noinline/autoinline, defaults to autoinline
 - `endfunc`
 - `funccall <name> ???`
   - TODO: Decide on how to determine what regs to save on caller side
 
 New directives:
 
-- `poison <symbol>` (throw error if symbol found)
+- `poison <symbol>*` (throw error if symbol found)
 - `namereg <reg> <name>` (register renaming inside functions)
   - `reg` MUST be a RV32I register
 - `imacro <name> <value>` (inline macro, for symbol replacement)
