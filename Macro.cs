@@ -7,5 +7,6 @@ namespace RV_Fabrication
 		public string Name { get; } = name;
 		public string[] Args { get; } = args;
 		public List<string> Lines { get; } = [];
+		public int References { get; set; } = 0;
 	}
 }

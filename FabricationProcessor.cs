@@ -11,16 +11,38 @@ namespace RV_Fabrication
 		private const string DIRECTIVE_PREFIX = ";";
 		private const string IMACRO_PREFIX = "$";
 		private const string MACRO_PREFIX = "$$";
+		private const string FABRICATOR_PREFIX = COMMENT_PREFIX + "[[FABR]] ";
+		private const string MACRO_COMMENT = FABRICATOR_PREFIX + "MACRO_CODE: ";
 
 		private const int genericError = -1;
 		private const int includePass = 1, macroSearchPass = 2, macroApplicationPass = 3,
-			functionSearchPass = 4, codeReadPass = 5, sectionImplementationPass = 6, mergePass = 7;
+			symbolSearchPass = 4, codeReadPass = 5, sectionImplementationPass = 6, mergePass = 7;
 
 		private readonly List<string> includedFiles = [];
 		private readonly Dictionary<string, Function> functions = [];
 		private readonly List<string> poisonedSymbols = [];
-		private Dictionary<string, string> imacros = [];
+		private Dictionary<string, IMacro> imacros = [];
 		private readonly Dictionary<string, Macro> macros = [];
+
+		private string rootFile = string.Empty;
+		private string rootParent = string.Empty;
+
+
+
+		private enum Directive
+		{
+			None = 0,
+			Include,
+			Sect,
+			FuncDecl,
+			EndFunc,
+			FuncCall,
+			SectOrd,
+			Poison,
+			IMacro,
+			Macro,
+			EndMacro,
+		}
 
 
 
@@ -30,16 +52,25 @@ namespace RV_Fabrication
 
 		public void ProcessFile(string path)
 		{
-			string blobPath = Path.ChangeExtension(path, ".blob.s");
-			string macroedPath = Path.ChangeExtension(path, ".macroed.s");
+			rootFile = Path.GetFullPath(path);
+			rootParent = Path.GetDirectoryName(path) ?? string.Empty;
+			string blobPath = Path.ChangeExtension(rootFile, ".blob.s");
+			string macroedPath = Path.ChangeExtension(rootFile, ".macroed.s");
 
 			StreamWriter sw = new(blobPath);
-			IncludePass(path, sw);
+			IncludePass(rootFile, sw);
 			sw.Close();
+			LogIncludedFiles();
 
 			MacroSearchPass(blobPath);
+			LogFoundMacros();
+
 			MacroApplicationPass(blobPath, macroedPath);
-			FunctionSearchPass(macroedPath);
+			LogAppliedMacros();
+
+			SymbolSearchPass(macroedPath);
+			LogFoundSymbols();
+
 			//CodeReadPass(macroedPath);
 		}
 
@@ -48,6 +79,11 @@ namespace RV_Fabrication
 
 		private void IncludePass(string path, StreamWriter sw)
 		{
+			string relPath = Path.GetRelativePath(rootParent, path);
+			string parentPath = Path.GetDirectoryName(path) ?? string.Empty;
+			if (includedFiles.Contains(relPath))
+				return;
+			includedFiles.Add(relPath);
 			StreamReader sr = new(path);
 			int lineNum = 0;
 
@@ -59,8 +95,8 @@ namespace RV_Fabrication
 
 				if (IsDirective(line))
 				{
-					string directive = GetDirective(line, out string[] args);
-					if (directive != "include")
+					Directive directive = GetDirective(line, out string[] args);
+					if (directive != Directive.Include)
 						goto includePass_skip_include;
 
 					if (args.Length != 1)
@@ -70,12 +106,8 @@ namespace RV_Fabrication
 					}
 
 					sw.WriteLine(srcLine);
-					string filePath = Path.GetFullPath(args[0]);
-					if (!includedFiles.Contains(filePath))
-					{
-						includedFiles.Add(filePath);
-						IncludePass(args[0], sw);
-					}
+					string includePath = Path.GetFullPath(Path.Combine(parentPath, args[0]));
+					IncludePass(includePath, sw);
 					continue;
 				}
 
@@ -93,30 +125,29 @@ namespace RV_Fabrication
 			{
 				string clean = CleanLine(sr.ReadLine());
 				if (!IsDirective(clean)) continue;
-				string directive = GetDirective(clean, out string[] args);
+				Directive directive = GetDirective(clean, out string[] args);
 
 				switch (directive)
 				{
-					case "include":
-					case "sect":
-					case "endfunc":
-					case "funccall":
-					case "endmacro":
-					case "funcdecl":
-					case "poison":
-						break; //Ignore
+					case Directive.EndMacro:
+						Logger.ErrorMsg($"Found an isolated endmacro directive. Are you missing a macro directive?");
+						Environment.Exit(macroSearchPass);
+						break;
 
-					case "imacro":
+					case Directive.IMacro:
 						DeclareIMacro(args);
 						break;
 
-					case "macro":
+					case Directive.Macro:
 						DeclareMacro(args, sr);
 						break;
 
-					default:
+					case Directive.None:
 						Logger.WarnMsg($"Unknown or unhandled directive '{directive}'. Skipping...");
 						break;
+
+					default:
+						break; //Ignore
 				}
 			}
 		}
@@ -134,7 +165,9 @@ namespace RV_Fabrication
 				line = ReplaceIMacros(line);
 				string cleaned = CleanLine(line);
 
-				if (IsMacroCall(cleaned))
+				if (IsDirective(cleaned) && GetDirective(cleaned, out _) == Directive.Macro)
+					CommentMacro(line, sr, sw);
+				else if (IsMacroCall(cleaned))
 				{
 					string macroName = GetMacroCall(cleaned, out string[] args);
 					ApplyMacro(macroName, args, sw);
@@ -146,7 +179,7 @@ namespace RV_Fabrication
 			sw.Close();
 			sr.Close();
 		}
-		private void FunctionSearchPass(string macroedPath)
+		private void SymbolSearchPass(string macroedPath)
 		{
 			StreamReader sr = new(macroedPath);
 
@@ -154,30 +187,24 @@ namespace RV_Fabrication
 			{
 				string clean = CleanLine(sr.ReadLine());
 				if (!IsDirective(clean)) continue;
-				string directive = GetDirective(clean, out string[] args);
+				Directive directive = GetDirective(clean, out string[] args);
 
 				switch (directive)
 				{
-					case "include":
-					case "sect":
-					case "endfunc":
-					case "funccall":
-					case "imacro":
-					case "macro":
-					case "endmacro":
-						break; //Ignore
-
-					case "funcdecl":
+					case Directive.FuncDecl:
 						DeclareFunction(args);
 						break;
 
-					case "poison":
+					case Directive.Poison:
 						PoisonSymbol(args);
 						break;
 
-					default:
+					case Directive.None:
 						Logger.WarnMsg($"Unknown or unhandled directive '{directive}'. Skipping...");
 						break;
+
+					default:
+						break; //Ingore
 				}
 			}
 
@@ -191,19 +218,18 @@ namespace RV_Fabrication
 			{
 				string clean = CleanLine(sr.ReadLine());
 				if (!IsDirective(clean)) continue;
-				string directive = GetDirective(clean, out string[] args);
+				Directive directive = GetDirective(clean, out string[] args);
 
 				//TODO: Finish implementing
 
 				switch (directive)
 				{
-					case "include":
-					case "sect":
-						break; //Ignore
-
-					default:
+					case Directive.None:
 						Logger.WarnMsg($"Unknown or unhandled directive '{directive}'. Skipping...");
 						break;
+
+					default:
+						break; //Ignore
 				}
 			}
 
@@ -217,13 +243,13 @@ namespace RV_Fabrication
 			if (args.Length < 1 || args.Length > 3)
 			{
 				Logger.ErrorMsg($"Directive funcdecl requires 1-3 arguments. {args.Length} provided.");
-				Environment.Exit(functionSearchPass);
+				Environment.Exit(symbolSearchPass);
 			}
 			string name = args[0];
 			if (functions.ContainsKey(name))
 			{
 				Logger.ErrorMsg($"Function '{name}' is already defined.");
-				Environment.Exit(functionSearchPass);
+				Environment.Exit(symbolSearchPass);
 			}
 			functions.Add(name, new(name));
 		}
@@ -232,7 +258,7 @@ namespace RV_Fabrication
 			if (args.Length < 1)
 			{
 				Logger.ErrorMsg($"Directive poison requires at least one argument. None provided.");
-				Environment.Exit(functionSearchPass);
+				Environment.Exit(symbolSearchPass);
 			}
 			string symbol = args[0];
 			if (poisonedSymbols.Contains(symbol))
@@ -255,7 +281,7 @@ namespace RV_Fabrication
 				Logger.ErrorMsg($"IMacro '{name}' is already defined.");
 				Environment.Exit(macroSearchPass);
 			}
-			imacros.Add(name, content);
+			imacros.Add(name, new (name, content));
 		}
 		private void DeclareMacro(string[] args, StreamReader sr)
 		{
@@ -273,21 +299,44 @@ namespace RV_Fabrication
 			Macro macro = new(name, macro_args);
 			macros.Add(name, macro);
 
+			bool foundEnd = false;
+
 			while (!sr.EndOfStream)
 			{
 				string? srcLine = sr.ReadLine();
 				string line = CleanLine(srcLine);
-				if (IsDirective(line) && GetDirective(line, out _) == "endmacro")
-					break;
+				if (IsDirective(line) && GetDirective(line, out _) == Directive.EndMacro)
+				{
+					foundEnd = true; break;
+				}
 
 				macro.Lines.Add(srcLine ?? string.Empty);
+			}
+
+			if (!foundEnd)
+			{
+				Logger.ErrorMsg($"Macro '{name}' is missing and endmacro directive.");
+				Environment.Exit(macroSearchPass);
+			}
+		}
+		private void CommentMacro(string macroLine, StreamReader sr, StreamWriter sw)
+		{
+			sw.WriteLine(MACRO_COMMENT + macroLine);
+
+			while (!sr.EndOfStream)
+			{
+				string? srcLine = sr.ReadLine();
+				string line = CleanLine(srcLine);
+				sw.WriteLine(MACRO_COMMENT + srcLine);
+				if (IsDirective(line) && GetDirective(line, out _) == Directive.EndMacro)
+					break;
 			}
 		}
 		private void SortIMacros()
 		{
-			List<KeyValuePair<string, string>> simacros = imacros.AsEnumerable().ToList();
+			List<KeyValuePair<string, IMacro>> simacros = imacros.AsEnumerable().ToList();
 			simacros.Sort(
-				(KeyValuePair<string, string> a, KeyValuePair<string, string> b) =>
+				(KeyValuePair<string, IMacro> a, KeyValuePair<string, IMacro> b) =>
 				a.Key.Length - b.Key.Length //TODO: Check sign here, longer should be first
 			);
 			imacros = simacros.ToDictionary();
@@ -296,8 +345,14 @@ namespace RV_Fabrication
 		{
 			//TODO: Error on undefined imacros (impl will probs optimize this function)
 
-			foreach (KeyValuePair<string, string> imacro in imacros)
-				line = line.Replace($"{IMACRO_PREFIX}{imacro.Key}", imacro.Value);
+			foreach (IMacro imacro in imacros.Values)
+			{
+				if (line.Contains($"{IMACRO_PREFIX}{imacro.Name}"))
+				{
+					line = line.Replace($"{IMACRO_PREFIX}{imacro.Name}", imacro.Value);
+					imacro.References++;
+				}
+			}
 
 			return line;
 		}
@@ -317,6 +372,8 @@ namespace RV_Fabrication
 				Environment.Exit(macroApplicationPass);
 			}
 
+			sw.WriteLine(FABRICATOR_PREFIX + $"MACRO {name}");
+
 			foreach (string line in macro.Lines)
 			{
 				string cleaned = CleanLine(line);
@@ -331,6 +388,49 @@ namespace RV_Fabrication
 					macroed = macroed.Replace(macro.Args[i], args[i]);
 				sw.WriteLine(macroed);
 			}
+
+			sw.WriteLine(FABRICATOR_PREFIX + $"ENDMACRO {name}");
+
+			macro.References++;
+		}
+
+
+
+		private void LogIncludedFiles()
+		{
+			Logger.InfoMsg($"Included {includedFiles.Count} " + (includedFiles.Count != 1 ? "files:" : "file:"));
+			foreach (string file in includedFiles)
+				Logger.InfoMsg($"\t{file}");
+		}
+		private void LogFoundMacros()
+		{
+			Logger.InfoMsg($"Found {imacros.Count} " + (imacros.Count != 1 ? "imacros" : "imacro") + $" and {macros.Count} " + (macros.Count != 1 ? "macros" : "macro") + ":");
+			foreach (string imacro in imacros.Keys)
+				Logger.InfoMsg($"\tIMacro: {imacro}");
+			foreach (string macro in macros.Keys)
+				Logger.InfoMsg($"\tMacro: {macro}");
+		}
+		private void LogAppliedMacros()
+		{
+			int totalIMacroApplies = 0, totalMacroApplies = 0;
+			foreach (IMacro imacro in imacros.Values)
+				totalIMacroApplies += imacro.References;
+			foreach (Macro macro in macros.Values)
+				totalMacroApplies += macro.References;
+
+			Logger.InfoMsg($"Applied {totalIMacroApplies} " + (totalIMacroApplies != 1 ? "imacros" : "imacro") + $" and {totalMacroApplies} " + (totalMacroApplies != 1 ? "macros" : "macro") + ":");
+			foreach (IMacro imacro in imacros.Values)
+				Logger.InfoMsg($"\tIMacro: {imacro.Name}: {imacro.References}");
+			foreach (Macro macro in macros.Values)
+				Logger.InfoMsg($"\tMacro: {macro.Name}: {macro.References}");
+		}
+		private void LogFoundSymbols()
+		{
+			Logger.InfoMsg($"Found {functions.Count} " + (functions.Count != 1 ? "functions" : "function") + $" and poisoned {poisonedSymbols.Count} " + (poisonedSymbols.Count != 1 ? "symbols" : "symbol") + ":");
+			foreach (Function func in functions.Values)
+				Logger.InfoMsg($"\tFunction {func.Name}");
+			foreach (string symbol in poisonedSymbols)
+				Logger.InfoMsg($"\tPoisoned symbol {symbol}");
 		}
 
 
@@ -344,14 +444,14 @@ namespace RV_Fabrication
 			int comment_idx = trimmed.IndexOf(COMMENT_PREFIX);
 
 			if (directive_idx == -1)
-				return trimmed[..comment_idx];
+				return comment_idx != -1 ? trimmed[..comment_idx] : trimmed;
 
-			if (comment_idx != -1)
+			if (comment_idx != -1 && comment_idx > directive_idx)
 			{
 				Logger.ErrorMsg($"Cannot include comments in lines with directives. Found '{line}'.");
 				Environment.Exit(genericError);
 			}
-			if (directive_idx != 0)
+			if (directive_idx != 0 && comment_idx > directive_idx)
 			{
 				Logger.ErrorMsg($"Directives must only be preceeded by whitespace. Found '{line}'.");
 				Environment.Exit(genericError);
@@ -360,11 +460,25 @@ namespace RV_Fabrication
 			return trimmed;
 		}
 		private static bool IsDirective(string cleaned) => cleaned.StartsWith(DIRECTIVE_PREFIX);
-		private static string GetDirective(string cleaned, out string[] args)
+		private static Directive GetDirective(string cleaned, out string[] args)
 		{
 			string[] parts = cleaned.Split();
 			args = (parts.Length >= 2) ? parts[1..] : [];
-			return parts[0][DIRECTIVE_PREFIX.Length..];
+
+			return (parts[0][DIRECTIVE_PREFIX.Length..]) switch
+			{
+				"include" => Directive.Include,
+				"sect" => Directive.Sect,
+				"funcdecl" => Directive.FuncDecl,
+				"endfunc" => Directive.EndFunc,
+				"funccall" => Directive.FuncCall,
+				"sectord" => Directive.SectOrd,
+				"poison" => Directive.Poison,
+				"imacro" => Directive.IMacro,
+				"macro" => Directive.Macro,
+				"endmacro" => Directive.EndMacro,
+				_ => Directive.None,
+			};
 		}
 		private static bool IsMacroCall(string cleaned) => cleaned.StartsWith(MACRO_PREFIX);
 		private static string GetMacroCall(string cleaned, out string[] args)

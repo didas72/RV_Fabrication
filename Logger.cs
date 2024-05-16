@@ -10,7 +10,7 @@ namespace RV_Fabrication
 			Warning = 1,
 			Info = 2,
 		}
-		private static LogLevel logLevel = LogLevel.Warning;
+		private static LogLevel logLevel = LogLevel.Info;
 
 
 

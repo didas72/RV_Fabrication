@@ -19,7 +19,7 @@
 - Include pass (include all files into a temporary one for processing)
 - Macro search (build list with all macros)
 - Macro application (replace all macros on new file)
-- Function search (build lists with all functions and poisoned symbols)
+- Symbol search (build lists with all functions and poisoned symbols)
 - Code read (read code for functions and check poisoned symbols)
 - Section implementation (implement all code into separate section files, function inlines/implementationss, etc.)
 - Final file merge (merge all section files to final output file, stripping comments/blanks as needed)
@@ -30,7 +30,6 @@ Copied/updated from old version:
 
 - `include <path>`
 - `sect <section>`
-  - `section` MUST be one of header/data/mid/text/footer
 - `funcdecl <name> [regsavehint] [inlinehint]` [cant be nested neither in macros nor functions]
   - `regsavehint` MUST be one of save/nosave, defaults to save
   - `inlinehint` MUST be one of aggressiveinline/noinline/autoinline, defaults to autoinline
@@ -41,6 +40,7 @@ Copied/updated from old version:
 
 New directives:
 
+- `sectord [sects]*` (define section ordering, unspecified sections will be added at the end in no particular order)
 - `poison <symbol>*` (throw error if symbol found)
 - `imacro <name> <value>` (inline macro, for symbol replacement)
 - `macro <name> [args]` (start multiline macro, for expressions) [cant be nested neither in macros nor functions]

@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "RV_Fabrication": {
+      "commandName": "Project",
+      "commandLineArgs": "testfiles/main.s",
+      "workingDirectory": "E:\\dev\\C#\\RV_Bozoer"
+    }
+  }
+}
