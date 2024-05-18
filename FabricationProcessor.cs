@@ -13,16 +13,18 @@ namespace RV_Fabrication
 		private const string MACRO_PREFIX = "$$";
 		private const string FABRICATOR_PREFIX = COMMENT_PREFIX + "[[FABR]] ";
 		private const string MACRO_COMMENT = FABRICATOR_PREFIX + "MACRO_CODE: ";
+		private readonly char[] SYMBOL_SEPARATORS = [' ', '\t', ',', ':', '(', ')'];
 
 		private const int genericError = -1;
 		private const int includePass = 1, macroSearchPass = 2, macroApplicationPass = 3,
-			symbolSearchPass = 4, codeReadPass = 5, sectionImplementationPass = 6, mergePass = 7;
+			symbolSearchPass = 4, sectionImplementationPass = 5, mergePass = 6;
 
 		private readonly List<string> includedFiles = [];
 		private readonly Dictionary<string, Function> functions = [];
 		private readonly List<string> poisonedSymbols = [];
 		private Dictionary<string, IMacro> imacros = [];
 		private readonly Dictionary<string, Macro> macros = [];
+		private readonly List<string> sectionOrder = [];
 
 		private string rootFile = string.Empty;
 		private string rootParent = string.Empty;
@@ -60,18 +62,11 @@ namespace RV_Fabrication
 			StreamWriter sw = new(blobPath);
 			IncludePass(rootFile, sw);
 			sw.Close();
-			LogIncludedFiles();
 
 			MacroSearchPass(blobPath);
-			LogFoundMacros();
-
 			MacroApplicationPass(blobPath, macroedPath);
-			LogAppliedMacros();
-
 			SymbolSearchPass(macroedPath);
-			LogFoundSymbols();
-
-			//CodeReadPass(macroedPath);
+			SectionImplementationPass(macroedPath);
 		}
 
 
@@ -101,7 +96,7 @@ namespace RV_Fabrication
 
 					if (args.Length != 1)
 					{
-						Logger.ErrorMsg($"Include directive requires exactly one argument, {args.Length} provided.");
+						Logger.ErrorMsg($"Directive include requires exactly one argument, {args.Length} provided.");
 						Environment.Exit(includePass);
 					}
 
@@ -192,7 +187,7 @@ namespace RV_Fabrication
 				switch (directive)
 				{
 					case Directive.FuncDecl:
-						DeclareFunction(args);
+						DeclareFunction(args, sr);
 						break;
 
 					case Directive.Poison:
@@ -204,23 +199,29 @@ namespace RV_Fabrication
 						break;
 
 					default:
-						break; //Ingore
+						break; //Ignore
 				}
 			}
 
 			sr.Close();
 		}
-		private void CodeReadPass(string macroedPath)
+		private void SectionImplementationPass(string macroedPath)
 		{
 			StreamReader sr = new(macroedPath);
+			StreamWriter sw = new(GetSectionPath("no_sect"));
 
 			while (!sr.EndOfStream)
 			{
-				string clean = CleanLine(sr.ReadLine());
+				string line = sr.ReadLine() ?? string.Empty;
+				string clean = CleanLine(line);
 				if (!IsDirective(clean)) continue;
 				Directive directive = GetDirective(clean, out string[] args);
-
-				//TODO: Finish implementing
+				string symbol;
+				if ((symbol = GetSymbols(clean).FirstOrDefault(poisonedSymbols.Contains, string.Empty)) != string.Empty)
+				{
+					Logger.ErrorMsg($"Found poisoned symbol '{symbol}' in '{line}'.");
+					Environment.Exit(sectionImplementationPass);
+				}
 
 				switch (directive)
 				{
@@ -228,45 +229,144 @@ namespace RV_Fabrication
 						Logger.WarnMsg($"Unknown or unhandled directive '{directive}'. Skipping...");
 						break;
 
+					case Directive.Sect:
+						sw.Close();
+						if (args.Length != 1)
+						{
+							Logger.ErrorMsg($"Directive sect requires exactly one argument. {args.Length} provided.");
+							Environment.Exit(sectionImplementationPass);
+						}
+						sw = new(GetSectionPath(args[0]));
+						break;
+
+					case Directive.SectOrd:
+						if (sectionOrder.Count != 0)
+						{
+							Logger.ErrorMsg($"Found a second sectord directive. Only one MAY exist in all source files.");
+							Environment.Exit(sectionImplementationPass);
+						}
+						if (args.Length == 0)
+						{
+							Logger.ErrorMsg("Directive sectord requires at least one argument. None provided.");
+							Environment.Exit(sectionImplementationPass);
+						}
+						sectionOrder.AddRange(args);
+						break;
+
+					case Directive.FuncCall:
+						if (args.Length == 0)
+						{
+							Logger.ErrorMsg("Directive funccall requires at least one argument. None provided.");
+							Environment.Exit(sectionImplementationPass);
+						}
+						int sepIdx;
+						if ((sepIdx = args.ToList().IndexOf("save", 1)) != -1) //Allow name to be save
+							ApplyFunctionCall(args[0], args.Length > 1 ? args[1..sepIdx] : [], args[(sepIdx+1)..], sw);
+						else
+							ApplyFunctionCall(args[0], args.Length > 1 ? args[1..] : [], [], sw);
+						break;
+
 					default:
 						break; //Ignore
 				}
 			}
 
+			sw.Close();
 			sr.Close();
 		}
 
 
 
-		private void DeclareFunction(string[] args)
+		private void DeclareFunction(string[] args, StreamReader sr)
 		{
-			if (args.Length < 1 || args.Length > 3)
+			if (args.Length < 2 || args.Length > 3)
 			{
-				Logger.ErrorMsg($"Directive funcdecl requires 1-3 arguments. {args.Length} provided.");
+				Logger.ErrorMsg($"Directive funcdecl requires 2-3 arguments. {args.Length} provided.");
 				Environment.Exit(symbolSearchPass);
 			}
 			string name = args[0];
+			Function.InlineHint inlineHint = Function.InlineHint.AutoInline;
 			if (functions.ContainsKey(name))
 			{
 				Logger.ErrorMsg($"Function '{name}' is already defined.");
 				Environment.Exit(symbolSearchPass);
 			}
-			functions.Add(name, new(name));
+			if (!int.TryParse(args[1], out int argc) || argc > 8)
+			{
+				Logger.ErrorMsg($"Directive function for '{name}' requires a non-negative integer value up to 8.");
+				Environment.Exit(symbolSearchPass);
+			}
+			if (args.Length >= 3)
+			{
+				switch (args[2])
+				{
+					case "agressiveinline":
+						inlineHint = Function.InlineHint.AgressiveInline;
+						break;
+
+					case "noinline":
+						inlineHint = Function.InlineHint.NoInline;
+						break;
+
+					case "autoinline":
+						inlineHint = Function.InlineHint.AutoInline;
+						break;
+
+					default:
+						Logger.ErrorMsg($"Dirctive function for '{name}' received an optional argument '{args[2]}'. This sould be one of the following: agressiveinline, noinline or autoinline.");
+						Environment.Exit(symbolSearchPass);
+						break;
+				}
+			}
+			Function func = new(name, argc, inlineHint);
+			functions.Add(name, func);
+
+			bool foundEnd = false;
+
+			while (!sr.EndOfStream)
+			{
+				string? srcLine = sr.ReadLine();
+				string line = CleanLine(srcLine);
+				if (IsDirective(line))
+				{
+					if (GetDirective(line, out _) == Directive.EndFunc)
+					{
+						foundEnd = true;
+						break;
+					}
+					else
+					{
+						Logger.ErrorMsg($"Found a directive inside function '{name}'. ('{line}')");
+						Environment.Exit(symbolSearchPass);
+					}
+				}
+
+				func.Lines.Add(srcLine ?? string.Empty);
+			}
+
+			if (!foundEnd)
+			{
+				Logger.ErrorMsg($"Function '{name}' is missing an endfunc directive.");
+				Environment.Exit(symbolSearchPass);
+			}
 		}
 		private void PoisonSymbol(string[] args)
 		{
 			if (args.Length < 1)
 			{
-				Logger.ErrorMsg($"Directive poison requires at least one argument. None provided.");
+				Logger.ErrorMsg("Directive poison requires at least one argument. None provided.");
 				Environment.Exit(symbolSearchPass);
 			}
-			string symbol = args[0];
-			if (poisonedSymbols.Contains(symbol))
+			for (int i = 0; i < args.Length; i++)
 			{
-				Logger.WarnMsg($"Symbol '{symbol}' is already poisoned. Ignoring...");
-				return;
+				string symbol = args[0];
+				if (poisonedSymbols.Contains(symbol))
+				{
+					Logger.WarnMsg($"Symbol '{symbol}' is already poisoned. Ignoring...");
+					return;
+				}
+				poisonedSymbols.Add(symbol);
 			}
-			poisonedSymbols.Add(symbol);
 		}
 		private void DeclareIMacro(string[] args)
 		{
@@ -281,7 +381,7 @@ namespace RV_Fabrication
 				Logger.ErrorMsg($"IMacro '{name}' is already defined.");
 				Environment.Exit(macroSearchPass);
 			}
-			imacros.Add(name, new (name, content));
+			imacros.Add(name, new(name, content));
 		}
 		private void DeclareMacro(string[] args, StreamReader sr)
 		{
@@ -315,7 +415,7 @@ namespace RV_Fabrication
 
 			if (!foundEnd)
 			{
-				Logger.ErrorMsg($"Macro '{name}' is missing and endmacro directive.");
+				Logger.ErrorMsg($"Macro '{name}' is missing an endmacro directive.");
 				Environment.Exit(macroSearchPass);
 			}
 		}
@@ -393,16 +493,54 @@ namespace RV_Fabrication
 
 			macro.References++;
 		}
+		private string GetSectionPath(string sect) => Path.Combine(rootParent, "blob__section_" + sect);
+		private string[] GetSymbols(string cleaned) => cleaned.Split(SYMBOL_SEPARATORS);
+		private void ApplyFunctionCall(string name, string[] args, string[] saveregs, StreamWriter sw)
+		{
+			if (!functions.ContainsKey(name))
+			{
+				Logger.ErrorMsg($"Function '{name}' is not defined.");
+				Environment.Exit(sectionImplementationPass);
+			}
+			Function func = functions[name];
+			if (args.Length != func.ArgCount)
+			{
+				Logger.ErrorMsg($"Function '{name}' has {func.ArgCount} arguments. {args.Length} provided.");
+				Environment.Exit(sectionImplementationPass);
+			}
+			//TODO: Convert args to ABI names
+			//TODO: Check for ra, sp in args
+			//TODO: Push saveregs (when to save ra?)
+			//TODO: Set a0-aX based on args
+			//TODO: Function call / inline
+			//TODO: Pop saveregs
+		}
+		private List<Tuple<string, string>> FindArgumentOrder(int argCount, string[] args)
+		{
+			//Goal:
+			//   Return a list of tuples with movements to be done to move each value in args[X] to aX.
+			//   Each tuple contains two strings: source and target. Use a tuple per movement.
+			//   Use the least amount of movements possible.
+			//Rules:
+			// - Do not write to any register other than ra or aX
+			// - Do not write to any aX register where X >= argCount
+			// - You may used ra for temporary storage
+			//Givens:
+			// - Register will be given as their RISC-V32I ABI names
+			// - Args will never contain ra
+			// - Create any auxiliar functions as needed
+			throw new NotImplementedException();
+		}
 
 
 
-		private void LogIncludedFiles()
+		public void LogIncludedFiles()
 		{
 			Logger.InfoMsg($"Included {includedFiles.Count} " + (includedFiles.Count != 1 ? "files:" : "file:"));
 			foreach (string file in includedFiles)
 				Logger.InfoMsg($"\t{file}");
 		}
-		private void LogFoundMacros()
+		public void LogFoundMacros()
 		{
 			Logger.InfoMsg($"Found {imacros.Count} " + (imacros.Count != 1 ? "imacros" : "imacro") + $" and {macros.Count} " + (macros.Count != 1 ? "macros" : "macro") + ":");
 			foreach (string imacro in imacros.Keys)
@@ -410,7 +548,7 @@ namespace RV_Fabrication
 			foreach (string macro in macros.Keys)
 				Logger.InfoMsg($"\tMacro: {macro}");
 		}
-		private void LogAppliedMacros()
+		public void LogAppliedMacros()
 		{
 			int totalIMacroApplies = 0, totalMacroApplies = 0;
 			foreach (IMacro imacro in imacros.Values)
@@ -420,15 +558,15 @@ namespace RV_Fabrication
 
 			Logger.InfoMsg($"Applied {totalIMacroApplies} " + (totalIMacroApplies != 1 ? "imacros" : "imacro") + $" and {totalMacroApplies} " + (totalMacroApplies != 1 ? "macros" : "macro") + ":");
 			foreach (IMacro imacro in imacros.Values)
-				Logger.InfoMsg($"\tIMacro: {imacro.Name}: {imacro.References}");
+				Logger.InfoMsg($"\tIMacro: {imacro.Name} ({imacro.References})");
 			foreach (Macro macro in macros.Values)
-				Logger.InfoMsg($"\tMacro: {macro.Name}: {macro.References}");
+				Logger.InfoMsg($"\tMacro: {macro.Name} ({macro.References})");
 		}
-		private void LogFoundSymbols()
+		public void LogFoundSymbols()
 		{
 			Logger.InfoMsg($"Found {functions.Count} " + (functions.Count != 1 ? "functions" : "function") + $" and poisoned {poisonedSymbols.Count} " + (poisonedSymbols.Count != 1 ? "symbols" : "symbol") + ":");
 			foreach (Function func in functions.Values)
-				Logger.InfoMsg($"\tFunction {func.Name}");
+				Logger.InfoMsg($"\tFunction {func.Name} ({func.ArgCount})");
 			foreach (string symbol in poisonedSymbols)
 				Logger.InfoMsg($"\tPoisoned symbol {symbol}");
 		}
