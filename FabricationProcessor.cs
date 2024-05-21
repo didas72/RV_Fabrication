@@ -14,6 +14,12 @@ namespace RV_Fabrication
 		private const string FABRICATOR_PREFIX = COMMENT_PREFIX + "[[FABR]] ";
 		private const string MACRO_COMMENT = FABRICATOR_PREFIX + "MACRO_CODE: ";
 		private readonly char[] SYMBOL_SEPARATORS = [' ', '\t', ',', ':', '(', ')'];
+		private readonly Dictionary<string, string> ABI_Names = new() {
+			{"x0","zero"},{"x1","ra"},{"x2","sp"},{"x3","gp"},{"x4","tp"},{"x5","t0"},{"x6","t1"},{"x7","t2"},
+			{"x8","s0"},{"x9","s1"},{"x10","a0"},{"x11","a1"},{"x12","a2"},{"x13","a3"},{"x14","a4"},{"x15","a5"},
+			{"x16","a6"},{"x17","a7"},{"x18","s2"},{"x19","s3"},{"x20","s4"},{"x21","s5"},{"x22","s6"},{"x23","s7"},
+			{"x24","s8"},{"x25","s9"},{"x26","s10"},{"x27","s11"},{"x28","t3"},{"x29","t4"},{"x30","t5"},{"x31","t6"}
+		};
 
 		private const int genericError = -1;
 		private const int includePass = 1, macroSearchPass = 2, macroApplicationPass = 3,
@@ -68,7 +74,6 @@ namespace RV_Fabrication
 			SymbolSearchPass(macroedPath);
 			SectionImplementationPass(macroedPath);
 		}
-
 
 
 
@@ -508,14 +513,34 @@ namespace RV_Fabrication
 				Logger.ErrorMsg($"Function '{name}' has {func.ArgCount} arguments. {args.Length} provided.");
 				Environment.Exit(sectionImplementationPass);
 			}
-			//TODO: Convert args to ABI names
-			//TODO: Check for ra, sp in args
-			//TODO: Push saveregs (when to save ra?)
-			//TODO: Set a0-aX based on args
+
+			for (int i = 0; i < args.Length; i++)
+			{
+				if (!ABI_Names.ContainsValue(args[i]) && !ABI_Names.ContainsKey(args[i]))
+				{
+					Logger.ErrorMsg($"Function '{name}' called with invalid argument {args[i]}.");
+					Environment.Exit(sectionImplementationPass);
+				}
+				args[i] = ABI_Names[args[i]];
+			}
+			if (args.Contains("ra"))
+			{
+				Logger.ErrorMsg($"Function '{name}' called with invalid argument ra or sp.");
+				Environment.Exit(sectionImplementationPass);
+			}
+			//TODO: Push saveregs (when to save ra? In non-leaf function implementation)
+			SetArguments(func.ArgCount, args, sw);
 			//TODO: Function call / inline
 			//TODO: Pop saveregs
 		}
-		private List<Tuple<string, string>> FindArgumentOrder(int argCount, string[] args)
+		private void SetArguments(int argCount, string[] args, StreamWriter sw)
+		{
+			List<(string, string)> movements = FindArgumentOrder(argCount, args);
+
+			foreach ((string, string) mov in movements)
+				sw.WriteLine($"\tmv {mov.Item2}, {mov.Item1}");
+		}
+		private List<(string, string)> FindArgumentOrder(int argCount, string[] args)
 		{
 			//Goal:
 			//   Return a list of tuples with movements to be done to move each value in args[X] to aX.
