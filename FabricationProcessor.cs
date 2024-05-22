@@ -5,8 +5,9 @@ using System.Linq;
 
 namespace RV_Fabrication
 {
-	internal class FabricationProcessor
+	internal class FabricationProcessor(FabricationProcessor.InlineMode inlineMode = FabricationProcessor.InlineMode.Auto)
 	{
+		private const int REG_SIZE = 4;
 		private const string COMMENT_PREFIX = "#";
 		private const string DIRECTIVE_PREFIX = ";";
 		private const string IMACRO_PREFIX = "$";
@@ -35,6 +36,8 @@ namespace RV_Fabrication
 		private string rootFile = string.Empty;
 		private string rootParent = string.Empty;
 
+		private readonly InlineMode inlineMode = inlineMode;
+
 
 
 		private enum Directive
@@ -51,10 +54,12 @@ namespace RV_Fabrication
 			Macro,
 			EndMacro,
 		}
-
-
-
-		public FabricationProcessor() { }
+		public enum InlineMode
+		{
+			Auto = 0,
+			Agressive,
+			Prohibit,
+		}
 
 
 
@@ -516,22 +521,60 @@ namespace RV_Fabrication
 
 			for (int i = 0; i < args.Length; i++)
 			{
-				if (!ABI_Names.ContainsValue(args[i]) && !ABI_Names.ContainsKey(args[i]))
+				if (!TryGetABIName(args[i], out string abiName))
 				{
 					Logger.ErrorMsg($"Function '{name}' called with invalid argument {args[i]}.");
 					Environment.Exit(sectionImplementationPass);
 				}
-				args[i] = ABI_Names[args[i]];
+				args[i] = abiName;
 			}
-			if (args.Contains("ra"))
+			if (args.Contains("ra") || args.Contains("sp"))
 			{
 				Logger.ErrorMsg($"Function '{name}' called with invalid argument ra or sp.");
 				Environment.Exit(sectionImplementationPass);
 			}
-			//TODO: Push saveregs (when to save ra? In non-leaf function implementation)
+			for (int i = 0; i < 12; i++)
+			{
+				if (!TryGetABIName(saveregs[i], out string abiName))
+				{
+					Logger.ErrorMsg($"Function '{name}' called with invalid savereg {saveregs[i]}.");
+					Environment.Exit(sectionImplementationPass);
+				}
+				else if (abiName.StartsWith('s'))
+				{
+					Logger.ErrorMsg($"Function '{name}' called with invalid savereg {saveregs[i]}. sX registers are saved automatically.");
+					Environment.Exit(sectionImplementationPass);
+				}
+			}
+			PushOrPopRegisters(saveregs, sw, false);
 			SetArguments(func.ArgCount, args, sw);
-			//TODO: Function call / inline
-			//TODO: Pop saveregs
+			CallOrInlineFunction(func, sw);
+			PushOrPopRegisters(saveregs, sw, true);
+		}
+		private bool TryGetABIName(string reg, out string abi)
+		{
+			if (ABI_Names.ContainsValue(reg))
+			{
+				abi = new(reg);
+				return true;
+			}
+			else if (ABI_Names.TryGetValue(reg, out string? value))
+			{
+				abi = value;
+				return true;
+			}
+			abi = string.Empty;
+			return false;
+		}
+		private void PushOrPopRegisters(string[] regs, StreamWriter sw, bool popNotPush)
+		{
+			if (!popNotPush) sw.WriteLine($"\taddi sp, sp, -{REG_SIZE * regs.Length}");
+			string op = popNotPush ? "lw" : "sw";
+
+			for (int i = 0; i < regs.Length; i++)
+				sw.WriteLine($"\t{op} {regs[i]}, {i * REG_SIZE}(sp)");
+
+			if (popNotPush) sw.WriteLine($"\taddi sp, sp, {REG_SIZE * regs.Length}");
 		}
 		private void SetArguments(int argCount, string[] args, StreamWriter sw)
 		{
@@ -554,6 +597,28 @@ namespace RV_Fabrication
 			// - Register will be given as their RISC-V32I ABI names
 			// - Args will never contain ra
 			// - Create any auxiliar functions as needed
+			throw new NotImplementedException();
+		}
+		private void CallOrInlineFunction(Function func, StreamWriter sw)
+		{
+			bool inline;
+			
+			if (func.InlineOption == Function.InlineHint.NoInline || inlineMode == InlineMode.Prohibit)
+				inline = false;
+			else if (func.InlineOption == Function.InlineHint.AgressiveInline)
+				inline = true;
+			else
+				inline = inlineMode == InlineMode.Agressive;
+
+			if (inline) InlineFunction(func, sw);
+			else sw.WriteLine($"\tcall {func.Name}");
+		}
+		private void InlineFunction(Function func, StreamWriter sw)
+		{
+			throw new NotImplementedException();
+		}
+		private void ImplementFunction(Function func, StreamWriter sw)
+		{
 			throw new NotImplementedException();
 		}
 
