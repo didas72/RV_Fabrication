@@ -7,8 +7,8 @@ namespace RV_Fabrication
 {
 	internal class FabricationProcessor(FabricationProcessor.InlineMode inlineMode = FabricationProcessor.InlineMode.Auto)
 	{
-		private const int REG_SIZE = 4;
-		private const string COMMENT_PREFIX = "#";
+		public const int REG_SIZE = 4;
+		public const string COMMENT_PREFIX = "#";
 		private const string DIRECTIVE_PREFIX = ";";
 		private const string IMACRO_PREFIX = "$";
 		private const string MACRO_PREFIX = "$$";
@@ -274,6 +274,15 @@ namespace RV_Fabrication
 							ApplyFunctionCall(args[0], args.Length > 1 ? args[1..sepIdx] : [], args[(sepIdx+1)..], sw);
 						else
 							ApplyFunctionCall(args[0], args.Length > 1 ? args[1..] : [], [], sw);
+						break;
+
+					case Directive.FuncDecl:
+						if (args.Length < 1)
+						{
+							Logger.ErrorMsg("Dirvetive funcdecl for function requires at least one argument. None provided.");
+							Environment.Exit(sectionImplementationPass);
+						}
+						ImplementFunction(args[0], sw);
 						break;
 
 					default:
@@ -617,9 +626,48 @@ namespace RV_Fabrication
 		{
 			throw new NotImplementedException();
 		}
-		private void ImplementFunction(Function func, StreamWriter sw)
+		private void ImplementFunction(string name, StreamWriter sw)
 		{
-			throw new NotImplementedException();
+			if (!functions.ContainsKey(name))
+			{
+				Logger.ErrorMsg($"Function '{name}' is not implemented.");
+				Environment.Exit(sectionImplementationPass);
+			}
+			Function func = functions[name];
+
+			ApplyFunctionCode(func, sw, null);
+		}
+		private void ApplyFunctionCode(Function func, StreamWriter sw, string? labelSuffix)
+		{
+			//TODO: Replace labels as needed
+
+			int lineIdx = 0;
+			for (; lineIdx < func.Lines.Count; lineIdx++)
+			{
+				string trimmed = func.Lines[lineIdx].Trim();
+				sw.WriteLine(func.Lines[lineIdx]);
+				if (trimmed.StartsWith($"{func.Name}:"))
+					break;
+			}
+			if (lineIdx == func.Lines.Count)
+			{
+				Logger.ErrorMsg($"Could not find label for function '{func.Name}'.");
+				Environment.Exit(sectionImplementationPass);
+			}
+			PushOrPopRegisters([.. func.GetUsedSaveRegs()], sw, false);
+			for (; lineIdx < func.Lines.Count; lineIdx++)
+			{
+				string trimmed = func.Lines[lineIdx].Trim();
+				if (trimmed.StartsWith("ret")) break;
+				sw.WriteLine(func.Lines[lineIdx]);
+			}
+			if (lineIdx == func.Lines.Count)
+			{
+				Logger.ErrorMsg($"Could not find return instruction for function '{func.Name}'.");
+				Environment.Exit(sectionImplementationPass);
+			}
+			PushOrPopRegisters([.. func.GetUsedSaveRegs()], sw, true);
+			for (--lineIdx; lineIdx < func.Lines.Count; lineIdx++) sw.WriteLine(func.Lines[lineIdx]);
 		}
 
 
