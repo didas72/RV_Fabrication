@@ -69,7 +69,9 @@ namespace RV_Fabrication
 			rootParent = Path.GetDirectoryName(path) ?? string.Empty;
 			string blobPath = Path.ChangeExtension(rootFile, ".blob.s");
 			string macroedPath = Path.ChangeExtension(rootFile, ".macroed.s");
+			string finalPath = Path.ChangeExtension(rootFile, ".final.s");
 
+			Cleanup(blobPath, macroedPath);
 			StreamWriter sw = new(blobPath);
 			IncludePass(rootFile, sw);
 			sw.Close();
@@ -78,6 +80,8 @@ namespace RV_Fabrication
 			MacroApplicationPass(blobPath, macroedPath);
 			SymbolSearchPass(macroedPath);
 			SectionImplementationPass(macroedPath);
+			MergePass(finalPath);
+			//Cleanup(blobPath, macroedPath);
 		}
 
 
@@ -155,6 +159,8 @@ namespace RV_Fabrication
 						break; //Ignore
 				}
 			}
+
+			sr.Close();
 		}
 		private void MacroApplicationPass(string blobPath, string macroedPath)
 		{
@@ -223,6 +229,7 @@ namespace RV_Fabrication
 			while (!sr.EndOfStream)
 			{
 				string line = sr.ReadLine() ?? string.Empty;
+				sw.WriteLine(line);
 				string clean = CleanLine(line);
 				if (!IsDirective(clean)) continue;
 				Directive directive = GetDirective(clean, out string[] args);
@@ -246,7 +253,7 @@ namespace RV_Fabrication
 							Logger.ErrorMsg($"Directive sect requires exactly one argument. {args.Length} provided.");
 							Environment.Exit(sectionImplementationPass);
 						}
-						sw = new(GetSectionPath(args[0]));
+						sw = new(GetSectionPath(args[0]), true);
 						break;
 
 					case Directive.SectOrd:
@@ -292,6 +299,45 @@ namespace RV_Fabrication
 
 			sw.Close();
 			sr.Close();
+		}
+		private void MergePass(string finalPath)
+		{
+			string[] files = Directory.GetFiles(rootParent, "blob__section_*.s");
+			List<string> orderedFiles = [];
+
+			foreach (string sect in sectionOrder)
+				orderedFiles.Add(GetSectionPath(sect));
+
+			foreach (string file in files)
+				if (!orderedFiles.Contains(file))
+					orderedFiles.Add(file);
+
+			string no_sect = GetSectionPath("no_sect");
+			orderedFiles.Remove(no_sect);
+			orderedFiles.Add(no_sect);
+
+			StreamWriter sw = new(finalPath);
+			while (orderedFiles.Count != 0)
+			{
+				string file = orderedFiles[0];
+				orderedFiles.RemoveAt(0);
+				if (!Path.Exists(file))
+				{
+					Logger.WarnMsg($"Could not find file for section '{Path.GetFileNameWithoutExtension(file)[14..]}'. Skipping...");
+					continue;
+				}
+				StreamReader sr = new(file);
+				sr.BaseStream.CopyTo(sw.BaseStream);
+				sr.Close();
+			}
+			sw.Close();
+		}
+		private void Cleanup(string blob, string macroed)
+		{
+			File.Delete(blob);
+			File.Delete(macroed);
+			foreach (string file in Directory.GetFiles(rootParent, "blob__section_*.s"))
+				File.Delete(file);
 		}
 
 
@@ -512,7 +558,7 @@ namespace RV_Fabrication
 
 			macro.References++;
 		}
-		private string GetSectionPath(string sect) => Path.Combine(rootParent, "blob__section_" + sect);
+		private string GetSectionPath(string sect) => Path.Combine(rootParent, "blob__section_" + sect + ".s");
 		private string[] GetSymbols(string cleaned) => cleaned.Split(SYMBOL_SEPARATORS);
 		private void ApplyFunctionCall(string name, string[] args, string[] saveregs, StreamWriter sw)
 		{
@@ -542,7 +588,7 @@ namespace RV_Fabrication
 				Logger.ErrorMsg($"Function '{name}' called with invalid argument ra or sp.");
 				Environment.Exit(sectionImplementationPass);
 			}
-			for (int i = 0; i < 12; i++)
+			for (int i = 0; i < saveregs.Length; i++)
 			{
 				if (!TryGetABIName(saveregs[i], out string abiName))
 				{
@@ -577,6 +623,8 @@ namespace RV_Fabrication
 		}
 		private void PushOrPopRegisters(string[] regs, StreamWriter sw, bool popNotPush)
 		{
+			if (regs.Length == 0) return;
+
 			if (!popNotPush) sw.WriteLine($"\taddi sp, sp, -{REG_SIZE * regs.Length}");
 			string op = popNotPush ? "lw" : "sw";
 
@@ -594,6 +642,7 @@ namespace RV_Fabrication
 		}
 		private List<(string, string)> FindArgumentOrder(int argCount, string[] args)
 		{
+			return [];
 			//Goal:
 			//   Return a list of tuples with movements to be done to move each value in args[X] to aX.
 			//   Each tuple contains two strings: source and target. Use a tuple per movement.
@@ -624,7 +673,8 @@ namespace RV_Fabrication
 		}
 		private void InlineFunction(Function func, StreamWriter sw)
 		{
-			throw new NotImplementedException();
+			string labelSuffix = $"_inline{func.GetInlineNumber()}";
+			ApplyFunctionCode(func, sw, labelSuffix);
 		}
 		private void ImplementFunction(string name, StreamWriter sw)
 		{
@@ -634,18 +684,30 @@ namespace RV_Fabrication
 				Environment.Exit(sectionImplementationPass);
 			}
 			Function func = functions[name];
+			if (func.References == 0) return; //Ignore unused functions
 
 			ApplyFunctionCode(func, sw, null);
 		}
 		private void ApplyFunctionCode(Function func, StreamWriter sw, string? labelSuffix)
 		{
-			//TODO: Replace labels as needed
+			List<(string, string)> labelMapping = [];
+
+			if (labelSuffix != null)
+			{
+				foreach (string line in func.Lines)
+				{
+					string trimmed = line.Split('#')[0].Trim();
+					if (trimmed.EndsWith(':'))
+						labelMapping.Add((trimmed[..^1], trimmed[..^1] + labelSuffix));
+				}
+			}
 
 			int lineIdx = 0;
 			for (; lineIdx < func.Lines.Count; lineIdx++)
 			{
+				string line = RenameLabels(func.Lines[lineIdx], labelMapping);
 				string trimmed = func.Lines[lineIdx].Trim();
-				sw.WriteLine(func.Lines[lineIdx]);
+				sw.WriteLine(line);
 				if (trimmed.StartsWith($"{func.Name}:"))
 					break;
 			}
@@ -657,9 +719,10 @@ namespace RV_Fabrication
 			PushOrPopRegisters([.. func.GetUsedSaveRegs()], sw, false);
 			for (; lineIdx < func.Lines.Count; lineIdx++)
 			{
+				string line = RenameLabels(func.Lines[lineIdx], labelMapping);
 				string trimmed = func.Lines[lineIdx].Trim();
 				if (trimmed.StartsWith("ret")) break;
-				sw.WriteLine(func.Lines[lineIdx]);
+				sw.WriteLine(line);
 			}
 			if (lineIdx == func.Lines.Count)
 			{
@@ -667,7 +730,16 @@ namespace RV_Fabrication
 				Environment.Exit(sectionImplementationPass);
 			}
 			PushOrPopRegisters([.. func.GetUsedSaveRegs()], sw, true);
-			for (--lineIdx; lineIdx < func.Lines.Count; lineIdx++) sw.WriteLine(func.Lines[lineIdx]);
+			for (--lineIdx; lineIdx < func.Lines.Count; lineIdx++)
+				sw.WriteLine(RenameLabels(func.Lines[lineIdx], labelMapping));
+		}
+		private string RenameLabels(string line, List<(string, string)> labels)
+		{
+			string replaced = new(line);
+			foreach ((string, string) pair in labels)
+				replaced = replaced.Replace(pair.Item1, pair.Item2);
+
+			return replaced;
 		}
 
 

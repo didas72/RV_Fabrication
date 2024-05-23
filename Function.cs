@@ -18,6 +18,7 @@ namespace RV_Fabrication
 		public InlineHint InlineOption { get; } = inlineHint;
 		public List<string> Lines { get; } = [];
 		public int References { get; set; } = 0;
+		private int inlines = 0;
 		private List<string>? usedSaveRegs = null;
 
 
@@ -40,6 +41,11 @@ namespace RV_Fabrication
 			}
 
 			return usedSaveRegs;
+		}
+	
+		public int GetInlineNumber()
+		{
+			return ++inlines;
 		}
 	}
 }
