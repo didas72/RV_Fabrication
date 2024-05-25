@@ -602,7 +602,7 @@ namespace RV_Fabrication
 				}
 			}
 			PushOrPopRegisters(saveregs, sw, false);
-			SetArguments(func.ArgCount, args, sw);
+			SetArguments(args, sw);
 			CallOrInlineFunction(func, sw);
 			PushOrPopRegisters(saveregs, sw, true);
 		}
@@ -633,145 +633,116 @@ namespace RV_Fabrication
 
 			if (popNotPush) sw.WriteLine($"\taddi sp, sp, {REG_SIZE * regs.Length}");
 		}
-		private void SetArguments(int argCount, string[] args, StreamWriter sw)
+		private void SetArguments(string[] args, StreamWriter sw)
 		{
-			List<(string, string)> movements = FindArgumentOrder(args);
+			List<(string, string)> movements = FindArgumentOrder([.. args]);
 
 			foreach ((string, string) mov in movements)
 				sw.WriteLine($"\tmv {mov.Item2}, {mov.Item1}");
 		}
-		private List<(string, string)> FindArgumentOrder(List <string> data)
+		private List<(string, string)> FindArgumentOrder(List<string> source)
 		{
-		var solved = new List<(string, string)>();
-		var pairs = new List<(string, string)>();
-		var orderedPairs = new List<List<string>>();
-		var destinations = Enumerable.Range(0, data.Count).Select(i => "a" + i).ToList();
+			int argc = source.Count;
+			List<(string, string)> solved = [];
+			List<(string, string)> pairs = [];
+			List<string> destinations = Enumerable.Range(0, argc).Select(i => "a" + i).ToList();
 
-		for (int i = 0; i < data.Count; i++){
+			//Add misplaced arguments
+			for (int i = 0; i < argc; i++)
+			{
+				if (destinations[i] != source[i])
+				{
+					solved.Add((source[i], destinations[i]));
+					source[i] = string.Empty;
+				}
+			}
 
-            if (!destinations[i].Equals(data[i])){
+			//For each target register
+			for (int i = 0; i < argc; i++)
+			{
+				//If it's source is not solved and is misplaced
+				if (source.Contains(destinations[i]) && destinations[i] != source[i])
+					pairs.Add((destinations[i], $"a{source.IndexOf(destinations[i])}")); //Add it's storage to pairs
+			}
 
-                solved.Add((data[i], destinations[i]));
-                data[i] = null;
-            }
-        }
+			List<(string, string)> orderedPairs = OrderPairs(pairs);
+			if (orderedPairs.Count != 0)
+			{
+				//If destination of last and source of first are the same
+				if (orderedPairs.Last().Item2 == orderedPairs[0].Item1)
+				{
+					//REVIEW: Append storage of first's source to ra
+					orderedPairs.Add((orderedPairs[0].Item1, "ra"));
+					//REVIEW: Prepend loading of first's contents from ra
+					orderedPairs[0] = ("ra", orderedPairs[0].Item2);
+				}
+			}
 
-		for (int i = 0; i < data.Count; i++){
+			//Oh god
+			orderedPairs.Reverse();
 
-            if (data.Contains(destinations[i]) && !destinations[i].Equals(data[i])){
+			//TODO: Review code below
+			for (int index = 1; index < orderedPairs.Count; index++)
+			{
+				if (orderedPairs[index].Item1 == orderedPairs[index - 1].Item2 && orderedPairs[index].Item2 == orderedPairs[index - 1].Item1)
+				{
+					orderedPairs[index - 1] = (orderedPairs[index - 1].Item1, "ra");
+					orderedPairs.Insert(index + 1, ("ra", orderedPairs[index].Item1));
+				}
+			}
 
-                pairs.Add((destinations[i], "a" + data.IndexOf(destinations[i])));
-            }
-        }
+			solved.AddRange(orderedPairs);
+			foreach (var pair in orderedPairs)
+				source.RemoveAll(x => x == pair.Item1);
 
-		var orderedPairs = OrderPairs(pairs);
-        if (orderedPairs.Any()){
+			for (int i = 0; i < argc; i++)
+				if (source[i] != string.Empty)
+					solved.Add((source[i], destinations[i]));
 
-            if (orderedPairs.Last().Item2 == orderedPairs.First().Item1){
-
-                orderedPairs.Add((orderedPairs.First().Item1, "ra"));
-                orderedPairs[0] = ("ra", orderedPairs.First().Item2);
-            }
-        }
-
-		orderedPairs.Reverse();
-        int index = 1;
-        while (index < orderedPairs.Count){
-
-            if (orderedPairs[index].Item1 == orderedPairs[index - 1].Item2 && orderedPairs[index].Item2 == orderedPairs[index - 1].Item1){
-
-                orderedPairs[index - 1] = (orderedPairs[index - 1].Item1, "ra");
-                orderedPairs.Insert(index + 1, ("ra", orderedPairs[index].Item1));
-                index++;
-            }
-            else{
-
-                index++;
-            }
-        }
-
-		solved.AddRange(orderedPairs);
-        foreach (var pair in orderedPairs){
-
-            data.RemoveAll(x => x == pair.Item1);
-        }
-
-        for (int i = 0; i < data.Count; i++){
-
-            if (data[i] != null){
-
-                solved.Add((data[i], destinations[i]));
-            }
-        }
-
-        return solved;
+			return solved;
 		}
-			
-			//Goal:
-			//   Return a list of tuples with movements to be done to move each value in args[X] to aX.
-			//   Each tuple contains two strings: source and target. Use a tuple per movement.
-			//   Use the least amount of movements possible.
-			//Rules:
-			// - Do not write to any register other than ra or aX
-			// - Do not write to any aX register where X >= argCount
-			// - You may used ra for temporary storage
-			//Givens:
-			// - Register will be given as their RISC-V32I ABI names
-			// - Args will never contain ra
-			// - Create any auxiliar functions as needed
-			//
-			//	throw new NotImplementedException();
-
-
-		public static List<(string, string)> OrderPairs(List<(string, string)> pairs)
+		private List<(string, string)> OrderPairs(List<(string, string)> pairs)
     	{
-		if (!pairs.Any()){
+			if (pairs.Count == 0)
+				return [];
 
-			return new List<(string, string)>();
-		}
+			List<List<(string, string)>> orderedPairs = [];
+			bool changes;
 
-        var orderedPairs = new List<List<(string, string)>> { new List<(string, string)> { pairs[0] } };
-        pairs.RemoveAt(0);
-        bool next = false;
-        bool changes = true;
-        int i = 0;
+			while (pairs.Count != 0)
+			{
+				List<(string, string)> curMovement = [pairs[0]];
+				orderedPairs.Add(curMovement);
+				pairs.RemoveAt(0);
+				changes = true; //Movement results in loss of data
 
-		while (pairs.Any()){
+				while (changes)
+				{
+					changes = false;
+					foreach ((string, string) pair in pairs)
+					{
+						if (pair.Item2 == curMovement[0].Item1) //If movement overwrites my source
+						{
+							//REVIEW: Prepend it to me??
+							curMovement.Insert(0, pair);
+							//Remove it from unordered
+							pairs.Remove(pair);
+							changes = true;
+						}
+						else if (pair.Item1 == curMovement.Last().Item2) //If I overwrite movement's source
+						{
+							//REVIEW: Append it to me??
+							curMovement.Add(pair);
+							//Remove it from unordered
+							pairs.Remove(pair);
+							changes = true;
+						}
+					}
+				}
+			}
 
-            if (next){
-
-                orderedPairs.Add(new List<(string, string)> { pairs[0] });
-                pairs.RemoveAt(0);
-                next = false;
-                changes = true;
-            }
-
-			while (changes){
-
-                changes = false;
-                foreach (var pair in pairs.ToList()){
-
-                    if (pair.Item2 == orderedPairs[i][0].Item1){
-
-                        orderedPairs[i].Insert(0, pair);
-                        pairs.Remove(pair);
-                        changes = true;
-                    }
-                    else if (pair.Item1 == orderedPairs[i].Last().Item2){
-
-                        orderedPairs[i].Add(pair);
-                        pairs.Remove(pair);
-                        changes = true;
-                    }
-                }
-            }
-
-            i++;
-            next = true;
-        }
-
-        return orderedPairs.SelectMany(x => x).ToList();
-
+			//Flatten
+			return orderedPairs.SelectMany(x => x).ToList();
 		}
 
 		private void CallOrInlineFunction(Function func, StreamWriter sw)
