@@ -635,14 +635,78 @@ namespace RV_Fabrication
 		}
 		private void SetArguments(int argCount, string[] args, StreamWriter sw)
 		{
-			List<(string, string)> movements = FindArgumentOrder(argCount, args);
+			List<(string, string)> movements = FindArgumentOrder(args);
 
 			foreach ((string, string) mov in movements)
 				sw.WriteLine($"\tmv {mov.Item2}, {mov.Item1}");
 		}
-		private List<(string, string)> FindArgumentOrder(int argCount, string[] args)
+		private List<(string, string)> FindArgumentOrder(List <string> data)
 		{
-			return [];
+		var solved = new List<(string, string)>();
+		var pairs = new List<(string, string)>();
+		var orderedPairs = new List<List<string>>();
+		var destinations = Enumerable.Range(0, data.Count).Select(i => "a" + i).ToList();
+
+		for (int i = 0; i < data.Count; i++){
+
+            if (!destinations[i].Equals(data[i])){
+
+                solved.Add((data[i], destinations[i]));
+                data[i] = null;
+            }
+        }
+
+		for (int i = 0; i < data.Count; i++){
+
+            if (data.Contains(destinations[i]) && !destinations[i].Equals(data[i])){
+
+                pairs.Add((destinations[i], "a" + data.IndexOf(destinations[i])));
+            }
+        }
+
+		var orderedPairs = OrderPairs(pairs);
+        if (orderedPairs.Any()){
+
+            if (orderedPairs.Last().Item2 == orderedPairs.First().Item1){
+
+                orderedPairs.Add((orderedPairs.First().Item1, "ra"));
+                orderedPairs[0] = ("ra", orderedPairs.First().Item2);
+            }
+        }
+
+		orderedPairs.Reverse();
+        int index = 1;
+        while (index < orderedPairs.Count){
+
+            if (orderedPairs[index].Item1 == orderedPairs[index - 1].Item2 && orderedPairs[index].Item2 == orderedPairs[index - 1].Item1){
+
+                orderedPairs[index - 1] = (orderedPairs[index - 1].Item1, "ra");
+                orderedPairs.Insert(index + 1, ("ra", orderedPairs[index].Item1));
+                index++;
+            }
+            else{
+
+                index++;
+            }
+        }
+
+		solved.AddRange(orderedPairs);
+        foreach (var pair in orderedPairs){
+
+            data.RemoveAll(x => x == pair.Item1);
+        }
+
+        for (int i = 0; i < data.Count; i++){
+
+            if (data[i] != null){
+
+                solved.Add((data[i], destinations[i]));
+            }
+        }
+
+        return solved;
+		}
+			
 			//Goal:
 			//   Return a list of tuples with movements to be done to move each value in args[X] to aX.
 			//   Each tuple contains two strings: source and target. Use a tuple per movement.
@@ -655,8 +719,61 @@ namespace RV_Fabrication
 			// - Register will be given as their RISC-V32I ABI names
 			// - Args will never contain ra
 			// - Create any auxiliar functions as needed
-			throw new NotImplementedException();
+			//
+			//	throw new NotImplementedException();
+
+
+		public static List<(string, string)> OrderPairs(List<(string, string)> pairs)
+    	{
+		if (!pairs.Any()){
+
+			return new List<(string, string)>();
 		}
+
+        var orderedPairs = new List<List<(string, string)>> { new List<(string, string)> { pairs[0] } };
+        pairs.RemoveAt(0);
+        bool next = false;
+        bool changes = true;
+        int i = 0;
+
+		while (pairs.Any()){
+
+            if (next){
+
+                orderedPairs.Add(new List<(string, string)> { pairs[0] });
+                pairs.RemoveAt(0);
+                next = false;
+                changes = true;
+            }
+
+			while (changes){
+
+                changes = false;
+                foreach (var pair in pairs.ToList()){
+
+                    if (pair.Item2 == orderedPairs[i][0].Item1){
+
+                        orderedPairs[i].Insert(0, pair);
+                        pairs.Remove(pair);
+                        changes = true;
+                    }
+                    else if (pair.Item1 == orderedPairs[i].Last().Item2){
+
+                        orderedPairs[i].Add(pair);
+                        pairs.Remove(pair);
+                        changes = true;
+                    }
+                }
+            }
+
+            i++;
+            next = true;
+        }
+
+        return orderedPairs.SelectMany(x => x).ToList();
+
+		}
+
 		private void CallOrInlineFunction(Function func, StreamWriter sw)
 		{
 			bool inline;
