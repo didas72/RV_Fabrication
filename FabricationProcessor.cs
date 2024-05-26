@@ -67,6 +67,12 @@ namespace RV_Fabrication
 
 		public void ProcessFile(string path)
 		{
+			if (!Path.Exists(path))
+			{
+				Logger.ErrorMsg($"Could not find path '{path}'.");
+				Environment.Exit(genericError);
+			}
+
 			rootFile = Path.GetFullPath(path);
 			rootParent = Path.GetDirectoryName(path) ?? string.Empty;
 			string blobPath = Path.ChangeExtension(rootFile, ".blob.s");
@@ -83,7 +89,7 @@ namespace RV_Fabrication
 			SymbolSearchPass(macroedPath);
 			SectionImplementationPass(macroedPath);
 			MergePass(finalPath);
-			//Cleanup(blobPath, macroedPath);
+			Cleanup(blobPath, macroedPath);
 		}
 
 
