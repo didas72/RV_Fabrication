@@ -243,9 +243,16 @@ namespace RV_Fabrication
 			while (!sr.EndOfStream)
 			{
 				string line = sr.ReadLine() ?? string.Empty;
-				sw.WriteLine(line);
 				string clean = CleanLine(line);
-				if (!IsDirective(clean)) continue;
+				if (!IsDirective(clean)) 
+				{
+					sw.WriteLine(line);
+					continue;
+				}
+				else
+				{
+					sw.WriteLine(FABRICATOR_PREFIX + line);
+				}
 				Directive directive = GetDirective(clean, out string[] args);
 				string symbol;
 				if ((symbol = GetSymbols(clean).FirstOrDefault(poisonedSymbols.Contains, string.Empty)) != string.Empty)
