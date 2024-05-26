@@ -14,6 +14,7 @@ namespace RV_Fabrication
 		private const string MACRO_PREFIX = "$$";
 		private const string FABRICATOR_PREFIX = COMMENT_PREFIX + "[[FABR]] ";
 		private const string MACRO_COMMENT = FABRICATOR_PREFIX + "MACRO_CODE: ";
+		private const string FUNC_COMMENT = FABRICATOR_PREFIX + "FUNCTION_CODE: ";
 		private readonly char[] SYMBOL_SEPARATORS = [' ', '\t', ',', ':', '(', ')'];
 		private readonly Dictionary<string, string> ABI_Names = new() {
 			{"x0","zero"},{"x1","ra"},{"x2","sp"},{"x3","gp"},{"x4","tp"},{"x5","t0"},{"x6","t1"},{"x7","t2"},
@@ -311,6 +312,7 @@ namespace RV_Fabrication
 							Environment.Exit(sectionImplementationPass);
 						}
 						ImplementFunction(args[0], sw);
+						CommentFunction(line, sr, sw);
 						break;
 
 					default:
@@ -522,6 +524,19 @@ namespace RV_Fabrication
 					break;
 			}
 		}
+		private void CommentFunction(string funcLine, StreamReader sr, StreamWriter sw)
+		{
+			sw.WriteLine(FUNC_COMMENT + funcLine);
+
+			while (!sr.EndOfStream)
+			{
+				string? srcLine = sr.ReadLine();
+				string line = CleanLine(srcLine);
+				sw.WriteLine(FUNC_COMMENT + srcLine);
+				if (IsDirective(line) && GetDirective(line, out _) == Directive.EndFunc)
+					break;
+			}
+		}
 		private void SortIMacros()
 		{
 			List<KeyValuePair<string, IMacro>> simacros = imacros.AsEnumerable().ToList();
@@ -697,7 +712,7 @@ namespace RV_Fabrication
 				Environment.Exit(sectionImplementationPass);
 			}
 			Function func = functions[name];
-			if (func.References == 0) return; //Ignore unused functions
+			//if (func.References == 0) return; //Ignore unused functions
 
 			ApplyFunctionCode(func, sw, null);
 		}
@@ -720,6 +735,7 @@ namespace RV_Fabrication
 			{
 				string line = RenameLabels(func.Lines[lineIdx], labelMapping);
 				string trimmed = func.Lines[lineIdx].Trim();
+				//FIXME: Not applying directives
 				sw.WriteLine(line);
 				if (trimmed.StartsWith($"{func.Name}:"))
 					break;
@@ -732,10 +748,11 @@ namespace RV_Fabrication
 			List<string> savedRegisters = func.GetUsedSaveRegs();
 			if (!func.IsLeaf) savedRegisters.Add("ra");
 			PushOrPopRegisters([.. savedRegisters], sw, false);
-			for (; lineIdx < func.Lines.Count; lineIdx++)
+			for (++lineIdx; lineIdx < func.Lines.Count; lineIdx++)
 			{
 				string line = RenameLabels(func.Lines[lineIdx], labelMapping);
 				string trimmed = func.Lines[lineIdx].Trim();
+				//FIXME: Not applying directives
 				if (trimmed.StartsWith("ret")) break;
 				sw.WriteLine(line);
 			}
@@ -745,8 +762,8 @@ namespace RV_Fabrication
 				Environment.Exit(sectionImplementationPass);
 			}
 			PushOrPopRegisters([.. savedRegisters], sw, true);
-			for (--lineIdx; lineIdx < func.Lines.Count; lineIdx++)
-				sw.WriteLine(RenameLabels(func.Lines[lineIdx], labelMapping));
+			for (; lineIdx < func.Lines.Count; lineIdx++)
+				sw.WriteLine(RenameLabels(func.Lines[lineIdx], labelMapping)); //FIXME: Not applying directives
 		}
 		private static string RenameLabels(string line, List<(string, string)> labels)
 		{
@@ -844,7 +861,7 @@ namespace RV_Fabrication
 		{
 			Logger.Print($"Found {functions.Count} " + (functions.Count != 1 ? "functions" : "function") + $" and poisoned {poisonedSymbols.Count} " + (poisonedSymbols.Count != 1 ? "symbols" : "symbol") + ":");
 			foreach (Function func in functions.Values)
-				Logger.InfoMsg($"\tFunction {func.Name} ({func.ArgCount})");
+				Logger.InfoMsg($"\tFunction {func.Name} ({func.ArgCount}) " + (func.IsLeaf ? "leaf" : "noleaf"));
 			foreach (string symbol in poisonedSymbols)
 				Logger.InfoMsg($"\tPoisoned symbol {symbol}");
 		}

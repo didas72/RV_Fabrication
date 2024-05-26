@@ -19,7 +19,7 @@ namespace RV_Fabrication
 
 			ParseArgs(args);
 
-			FabricationProcessor proc = new();
+			FabricationProcessor proc = new(inlineMode);
 			proc.ProcessFile(mainPath);
 
 			if (logIncludes) proc.LogIncludedFiles();
