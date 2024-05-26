@@ -2,17 +2,17 @@
 
 ## Indended features
 
-- Includes (with sections and automatic guards)
-- Functions
-  - Inlines (with label renaming)
-  - Automatically save registers (generic, don't enforce s0-sX)
-  - Function calls with auto setting of a0-aX registers
-  - Register naming (with variable definition)
+- [DONE] Includes (with sections and automatic guards)
+- [DONE] Functions
+  - [DONE] Inlines (with label renaming)
+  - [DONE] Automatically save registers (generic, don't enforce s0-sX)
+  - [DONE] Function calls with auto setting of a0-aX registers
+  - [DONE (with imacros)] Register naming (with variable definition)
   - [MAYBE] Auto name-register mapping
   - [MAYBE] Ignorable static type checking for arguments and returns
-- Statistics (LOC, blanks, comment-only)
-- Symbol poisoning
-- Replacement macros
+- [DONE] Statistics (LOC, blanks, comment-only, directives)
+- [DONE] Symbol poisoning
+- [DONE] Replacement macros
 
 ## Passes
 

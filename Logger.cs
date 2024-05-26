@@ -10,16 +10,18 @@ namespace RV_Fabrication
 			Warning = 1,
 			Info = 2,
 		}
-		private static LogLevel logLevel = LogLevel.Info;
+		private static LogLevel logLevel = LogLevel.Warning;
+		private static ConsoleColor foregroundDefault = Console.ForegroundColor;
 
 
 
-		public static void SetLogLevel(LogLevel level) => logLevel = level; 
+		public static void SetLogLevel(LogLevel level) => logLevel = level;
 
 
 
 		public static void Print(string msg)
 		{
+			Console.ForegroundColor = foregroundDefault;
 			Console.WriteLine(msg);
 		}
 		public static void Print(string msg, ConsoleColor color = ConsoleColor.White)

@@ -23,8 +23,8 @@ namespace RV_Fabrication
 		};
 
 		private const int genericError = -1;
-		private const int includePass = 1, macroSearchPass = 2, macroApplicationPass = 3,
-			symbolSearchPass = 4, sectionImplementationPass = 5, mergePass = 6;
+		private const int includePass = 2, macroSearchPass = 3, macroApplicationPass = 4,
+			symbolSearchPass = 5, sectionImplementationPass = 6;
 
 		private readonly List<string> includedFiles = [];
 		private readonly Dictionary<string, Function> functions = [];
@@ -37,6 +37,8 @@ namespace RV_Fabrication
 		private string rootParent = string.Empty;
 
 		private readonly InlineMode inlineMode = inlineMode;
+
+		private int lineCount = 0, directiveCount = 0, commentOnlyCount = 0, blankCount = 0, codeLineCount = 0;
 
 
 
@@ -86,6 +88,7 @@ namespace RV_Fabrication
 
 
 
+		#region Passes
 		private void IncludePass(string path, StreamWriter sw)
 		{
 			string relPath = Path.GetRelativePath(rootParent, path);
@@ -98,12 +101,16 @@ namespace RV_Fabrication
 
 			while (!sr.EndOfStream)
 			{
+				lineCount++;
 				string? srcLine = sr.ReadLine();
 				string line = CleanLine(srcLine);
 				++lineNum;
 
-				if (IsDirective(line))
+				if (IsBlankLine(line)) blankCount++;
+				else if (IsCommentOnly(line)) commentOnlyCount++;
+				else if (IsDirective(line))
 				{
+					directiveCount++;
 					Directive directive = GetDirective(line, out string[] args);
 					if (directive != Directive.Include)
 						goto includePass_skip_include;
@@ -119,6 +126,7 @@ namespace RV_Fabrication
 					IncludePass(includePath, sw);
 					continue;
 				}
+				else codeLineCount++;
 
 			includePass_skip_include:
 				sw.WriteLine(srcLine);
@@ -339,9 +347,11 @@ namespace RV_Fabrication
 			foreach (string file in Directory.GetFiles(rootParent, "blob__section_*.s"))
 				File.Delete(file);
 		}
+		#endregion
 
 
 
+		#region Pass auxiliar methods
 		private void DeclareFunction(string[] args, StreamReader sr)
 		{
 			if (args.Length < 2 || args.Length > 3)
@@ -640,52 +650,11 @@ namespace RV_Fabrication
 			foreach ((string, string) mov in movements)
 				sw.WriteLine($"\tmv {mov.Item2}, {mov.Item1}");
 		}
-		private List<(string, string)> FindArgumentOrder(string[] sources)
-		{
-			int[] set = new int[sources.Length];
-			Stack<string> stack = [];
-			List<(string, string)> ret = [];
-
-			for (int i = 0; i < sources.Length; i++)
-				AddArgumentMovement(i, sources, set, ret, stack);
-
-			return ret;
-		}
-		private void AddArgumentMovement(int index, string[] sources, int[] set, List<(string, string)> ret, Stack<string> loopFixing)
-		{
-			string dest = $"a{index}";
-			if (set[index] == 2 || sources[index] == dest) //Already set
-			{
-				set[index] = 2;
-				return;
-			}
-
-			if (set[index] == 1)
-			{
-				set[index] = 2;
-				ret.Add((sources[index], "ra"));
-				loopFixing.Push(sources[index]);
-				return;
-			}
-			else set[index] = 1;
-
-			for (int j = 0; j < sources.Length; j++)
-			{
-				if (set[j] == 2) continue; //Already set are not considered (includes self)
-
-				if (sources[j] == dest) //Would overwrite
-					AddArgumentMovement(j, sources, set, ret, loopFixing);
-			}
-
-			//Add actual movement
-			if (loopFixing.TryPeek(out string? stackTop) && stackTop == sources[index]) ret.Add(("ra", dest));
-			else ret.Add((sources[index], dest));
-
-			set[index] = 2;
-		}
+		#endregion
 
 
 
+		#region Code actions
 		private void CallOrInlineFunction(Function func, StreamWriter sw)
 		{
 			bool inline;
@@ -762,7 +731,7 @@ namespace RV_Fabrication
 			for (--lineIdx; lineIdx < func.Lines.Count; lineIdx++)
 				sw.WriteLine(RenameLabels(func.Lines[lineIdx], labelMapping));
 		}
-		private string RenameLabels(string line, List<(string, string)> labels)
+		private static string RenameLabels(string line, List<(string, string)> labels)
 		{
 			string replaced = new(line);
 			foreach ((string, string) pair in labels)
@@ -770,6 +739,50 @@ namespace RV_Fabrication
 
 			return replaced;
 		}
+		private static List<(string, string)> FindArgumentOrder(string[] sources)
+		{
+			int[] set = new int[sources.Length];
+			Stack<string> stack = [];
+			List<(string, string)> ret = [];
+
+			for (int i = 0; i < sources.Length; i++)
+				AddArgumentMovement(i, sources, set, ret, stack);
+
+			return ret;
+		}
+		private static void AddArgumentMovement(int index, string[] sources, int[] set, List<(string, string)> ret, Stack<string> loopFixing)
+		{
+			string dest = $"a{index}";
+			if (set[index] == 2 || sources[index] == dest) //Already set
+			{
+				set[index] = 2;
+				return;
+			}
+
+			if (set[index] == 1)
+			{
+				set[index] = 2;
+				ret.Add((sources[index], "ra"));
+				loopFixing.Push(sources[index]);
+				return;
+			}
+			else set[index] = 1;
+
+			for (int j = 0; j < sources.Length; j++)
+			{
+				if (set[j] == 2) continue; //Already set are not considered (includes self)
+
+				if (sources[j] == dest) //Would overwrite
+					AddArgumentMovement(j, sources, set, ret, loopFixing);
+			}
+
+			//Add actual movement
+			if (loopFixing.TryPeek(out string? stackTop) && stackTop == sources[index]) ret.Add(("ra", dest));
+			else ret.Add((sources[index], dest));
+
+			set[index] = 2;
+		}
+		#endregion
 
 
 
@@ -778,6 +791,15 @@ namespace RV_Fabrication
 			Logger.InfoMsg($"Included {includedFiles.Count} " + (includedFiles.Count != 1 ? "files:" : "file:"));
 			foreach (string file in includedFiles)
 				Logger.InfoMsg($"\t{file}");
+		}
+		public void LogSourceMetrics()
+		{
+			Logger.InfoMsg($"Code metrics for {includedFiles.Count} included files:");
+			Logger.InfoMsg($"\tTotal lines:\t{lineCount}");
+			Logger.InfoMsg($"\tComment lines:\t{commentOnlyCount}");
+			Logger.InfoMsg($"\tBlank lines:\t{blankCount}");
+			Logger.InfoMsg($"\tLines of code:\t{codeLineCount}");
+			Logger.InfoMsg($"\tDirectives:\t{directiveCount}");
 		}
 		public void LogFoundMacros()
 		{
@@ -803,7 +825,7 @@ namespace RV_Fabrication
 		}
 		public void LogFoundSymbols()
 		{
-			Logger.InfoMsg($"Found {functions.Count} " + (functions.Count != 1 ? "functions" : "function") + $" and poisoned {poisonedSymbols.Count} " + (poisonedSymbols.Count != 1 ? "symbols" : "symbol") + ":");
+			Logger.Print($"Found {functions.Count} " + (functions.Count != 1 ? "functions" : "function") + $" and poisoned {poisonedSymbols.Count} " + (poisonedSymbols.Count != 1 ? "symbols" : "symbol") + ":");
 			foreach (Function func in functions.Values)
 				Logger.InfoMsg($"\tFunction {func.Name} ({func.ArgCount})");
 			foreach (string symbol in poisonedSymbols)
@@ -812,6 +834,7 @@ namespace RV_Fabrication
 
 
 
+		#region Auxiliar methodos
 		private static string CleanLine(string? srcLine)
 		{
 			string line = srcLine ?? string.Empty;
@@ -864,5 +887,8 @@ namespace RV_Fabrication
 			args = (parts.Length >= 2) ? parts[1..] : [];
 			return parts[0][MACRO_PREFIX.Length..];
 		}
+		private static bool IsBlankLine(string cleaned) => string.IsNullOrWhiteSpace(cleaned);
+		private static bool IsCommentOnly(string cleaned) => cleaned.StartsWith(COMMENT_PREFIX);
+		#endregion
 	}
 }
