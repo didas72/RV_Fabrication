@@ -3,7 +3,7 @@
     "RV_Fabrication": {
       "commandName": "Project",
       "commandLineArgs": "testfiles/main.s",
-      "workingDirectory": "D:\\src\\C#\\RV_Fabrication"
+      "workingDirectory": "E:\\src\\C#\\RV_Fabrication"
     }
   }
 }

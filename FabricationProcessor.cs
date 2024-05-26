@@ -635,115 +635,56 @@ namespace RV_Fabrication
 		}
 		private void SetArguments(string[] args, StreamWriter sw)
 		{
-			List<(string, string)> movements = FindArgumentOrder([.. args]);
+			List<(string, string)> movements = FindArgumentOrder(args);
 
 			foreach ((string, string) mov in movements)
 				sw.WriteLine($"\tmv {mov.Item2}, {mov.Item1}");
 		}
-		private List<(string, string)> FindArgumentOrder(List<string> source)
+		private List<(string, string)> FindArgumentOrder(string[] sources)
 		{
-			int argc = source.Count;
-			List<(string, string)> solved = [];
-			List<(string, string)> pairs = [];
-			List<string> destinations = Enumerable.Range(0, argc).Select(i => "a" + i).ToList();
+			int[] set = new int[sources.Length];
+			Stack<string> stack = [];
+			List<(string, string)> ret = [];
 
-			//Add misplaced arguments
-			for (int i = 0; i < argc; i++)
-			{
-				if (destinations[i] != source[i])
-				{
-					solved.Add((source[i], destinations[i]));
-					source[i] = string.Empty;
-				}
-			}
+			for (int i = 0; i < sources.Length; i++)
+				AddArgumentMovement(i, sources, set, ret, stack);
 
-			//For each target register
-			for (int i = 0; i < argc; i++)
-			{
-				//If it's source is not solved and is misplaced
-				if (source.Contains(destinations[i]) && destinations[i] != source[i])
-					pairs.Add((destinations[i], $"a{source.IndexOf(destinations[i])}")); //Add it's storage to pairs
-			}
-
-			List<(string, string)> orderedPairs = OrderPairs(pairs);
-			if (orderedPairs.Count != 0)
-			{
-				//If destination of last and source of first are the same
-				if (orderedPairs.Last().Item2 == orderedPairs[0].Item1)
-				{
-					//REVIEW: Append storage of first's source to ra
-					orderedPairs.Add((orderedPairs[0].Item1, "ra"));
-					//REVIEW: Prepend loading of first's contents from ra
-					orderedPairs[0] = ("ra", orderedPairs[0].Item2);
-				}
-			}
-
-			//Oh god
-			orderedPairs.Reverse();
-
-			//TODO: Review code below
-			for (int index = 1; index < orderedPairs.Count; index++)
-			{
-				if (orderedPairs[index].Item1 == orderedPairs[index - 1].Item2 && orderedPairs[index].Item2 == orderedPairs[index - 1].Item1)
-				{
-					orderedPairs[index - 1] = (orderedPairs[index - 1].Item1, "ra");
-					orderedPairs.Insert(index + 1, ("ra", orderedPairs[index].Item1));
-				}
-			}
-
-			solved.AddRange(orderedPairs);
-			foreach (var pair in orderedPairs)
-				source.RemoveAll(x => x == pair.Item1);
-
-			for (int i = 0; i < argc; i++)
-				if (source[i] != string.Empty)
-					solved.Add((source[i], destinations[i]));
-
-			return solved;
+			return ret;
 		}
-		private List<(string, string)> OrderPairs(List<(string, string)> pairs)
-    	{
-			if (pairs.Count == 0)
-				return [];
-
-			List<List<(string, string)>> orderedPairs = [];
-			bool changes;
-
-			while (pairs.Count != 0)
+		private void AddArgumentMovement(int index, string[] sources, int[] set, List<(string, string)> ret, Stack<string> loopFixing)
+		{
+			string dest = $"a{index}";
+			if (set[index] == 2 || sources[index] == dest) //Already set
 			{
-				List<(string, string)> curMovement = [pairs[0]];
-				orderedPairs.Add(curMovement);
-				pairs.RemoveAt(0);
-				changes = true; //Movement results in loss of data
-
-				while (changes)
-				{
-					changes = false;
-					foreach ((string, string) pair in pairs)
-					{
-						if (pair.Item2 == curMovement[0].Item1) //If movement overwrites my source
-						{
-							//REVIEW: Prepend it to me??
-							curMovement.Insert(0, pair);
-							//Remove it from unordered
-							pairs.Remove(pair);
-							changes = true;
-						}
-						else if (pair.Item1 == curMovement.Last().Item2) //If I overwrite movement's source
-						{
-							//REVIEW: Append it to me??
-							curMovement.Add(pair);
-							//Remove it from unordered
-							pairs.Remove(pair);
-							changes = true;
-						}
-					}
-				}
+				set[index] = 2;
+				return;
 			}
 
-			//Flatten
-			return orderedPairs.SelectMany(x => x).ToList();
+			if (set[index] == 1)
+			{
+				set[index] = 2;
+				ret.Add((sources[index], "ra"));
+				loopFixing.Push(sources[index]);
+				return;
+			}
+			else set[index] = 1;
+
+			for (int j = 0; j < sources.Length; j++)
+			{
+				if (set[j] == 2) continue; //Already set are not considered (includes self)
+
+				if (sources[j] == dest) //Would overwrite
+					AddArgumentMovement(j, sources, set, ret, loopFixing);
+			}
+
+			//Add actual movement
+			if (loopFixing.TryPeek(out string? stackTop) && stackTop == sources[index]) ret.Add(("ra", dest));
+			else ret.Add((sources[index], dest));
+
+			set[index] = 2;
 		}
+
+
 
 		private void CallOrInlineFunction(Function func, StreamWriter sw)
 		{
