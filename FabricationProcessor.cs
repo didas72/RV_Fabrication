@@ -423,7 +423,8 @@ namespace RV_Fabrication
 						foundEnd = true;
 						break;
 					}
-					else if (directive != Directive.FuncCall)
+					else if (directive == Directive.FuncCall) func.IsLeaf = false;
+					else
 					{
 						Logger.ErrorMsg($"Found an invalid directive inside function '{name}'. ('{line}')");
 						Environment.Exit(symbolSearchPass);
@@ -728,7 +729,9 @@ namespace RV_Fabrication
 				Logger.ErrorMsg($"Could not find label for function '{func.Name}'.");
 				Environment.Exit(sectionImplementationPass);
 			}
-			PushOrPopRegisters([.. func.GetUsedSaveRegs()], sw, false);
+			List<string> savedRegisters = func.GetUsedSaveRegs();
+			if (!func.IsLeaf) savedRegisters.Add("ra");
+			PushOrPopRegisters([.. savedRegisters], sw, false);
 			for (; lineIdx < func.Lines.Count; lineIdx++)
 			{
 				string line = RenameLabels(func.Lines[lineIdx], labelMapping);
@@ -741,7 +744,7 @@ namespace RV_Fabrication
 				Logger.ErrorMsg($"Could not find return instruction for function '{func.Name}'.");
 				Environment.Exit(sectionImplementationPass);
 			}
-			PushOrPopRegisters([.. func.GetUsedSaveRegs()], sw, true);
+			PushOrPopRegisters([.. savedRegisters], sw, true);
 			for (--lineIdx; lineIdx < func.Lines.Count; lineIdx++)
 				sw.WriteLine(RenameLabels(func.Lines[lineIdx], labelMapping));
 		}

@@ -18,6 +18,7 @@ namespace RV_Fabrication
 		public InlineHint InlineOption { get; } = inlineHint;
 		public List<string> Lines { get; } = [];
 		public int References { get; set; } = 0;
+		public bool IsLeaf { get; set; } = true;
 		private int inlines = 0;
 		private List<string>? usedSaveRegs = null;
 
