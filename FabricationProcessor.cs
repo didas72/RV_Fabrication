@@ -362,7 +362,7 @@ namespace RV_Fabrication
 		{
 			if (args.Length < 2 || args.Length > 3)
 			{
-				Logger.ErrorMsg($"Directive funcdecl requires 2-3 arguments. {args.Length} provided.");
+				Logger.ErrorMsg($"Directive funcdecl requires 2-3 arguments. {args.Length} provided." + (args.Length != 0 ? " Function " + args[0] : string.Empty));
 				Environment.Exit(symbolSearchPass);
 			}
 			string name = args[0];
@@ -394,7 +394,7 @@ namespace RV_Fabrication
 						break;
 
 					default:
-						Logger.ErrorMsg($"Dirctive function for '{name}' received an optional argument '{args[2]}'. This sould be one of the following: agressiveinline, noinline or autoinline.");
+						Logger.ErrorMsg($"Directive funcdecl for '{name}' received an optional argument '{args[2]}'. This sould be one of the following: agressiveinline, noinline or autoinline.");
 						Environment.Exit(symbolSearchPass);
 						break;
 				}
@@ -410,14 +410,15 @@ namespace RV_Fabrication
 				string line = CleanLine(srcLine);
 				if (IsDirective(line))
 				{
-					if (GetDirective(line, out _) == Directive.EndFunc)
+					Directive directive = GetDirective(line, out _);
+					if (directive == Directive.EndFunc)
 					{
 						foundEnd = true;
 						break;
 					}
-					else
+					else if (directive != Directive.FuncCall)
 					{
-						Logger.ErrorMsg($"Found a directive inside function '{name}'. ('{line}')");
+						Logger.ErrorMsg($"Found an invalid directive inside function '{name}'. ('{line}')");
 						Environment.Exit(symbolSearchPass);
 					}
 				}
