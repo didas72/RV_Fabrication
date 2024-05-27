@@ -36,7 +36,7 @@ namespace RV_Fabrication
 				for (int i = 0; i < 12; i++)
 				{
 					string reg = $"s{i}";
-					if (!usedSaveRegs.Contains(reg)) continue;
+					if (usedSaveRegs.Contains(reg)) continue;
 					if (code.Contains(reg)) usedSaveRegs.Add(reg);
 				}
 			}
