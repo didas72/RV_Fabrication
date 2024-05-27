@@ -298,11 +298,7 @@ namespace RV_Fabrication
 							Logger.ErrorMsg("Directive funccall requires at least one argument. None provided.");
 							Environment.Exit(sectionImplementationPass);
 						}
-						int sepIdx;
-						if ((sepIdx = args.ToList().IndexOf("save", 1)) != -1) //Allow name to be save
-							ApplyFunctionCall(args[0], args.Length > 1 ? args[1..sepIdx] : [], args[(sepIdx+1)..], sw);
-						else
-							ApplyFunctionCall(args[0], args.Length > 1 ? args[1..] : [], [], sw);
+						FunctionCall(args, sw);
 						break;
 
 					case Directive.FuncDecl:
@@ -600,6 +596,14 @@ namespace RV_Fabrication
 		}
 		private string GetSectionPath(string sect) => Path.Combine(rootParent, "blob__section_" + sect + ".s");
 		private string[] GetSymbols(string cleaned) => cleaned.Split(SYMBOL_SEPARATORS);
+		private void FunctionCall(string[] args, StreamWriter sw)
+		{
+			int sepIdx;
+			if ((sepIdx = args.ToList().IndexOf("save", 1)) != -1) //Allow name to be save
+				ApplyFunctionCall(args[0], args.Length > 1 ? args[1..sepIdx] : [], args[(sepIdx + 1)..], sw);
+			else
+				ApplyFunctionCall(args[0], args.Length > 1 ? args[1..] : [], [], sw);
+		}
 		private void ApplyFunctionCall(string name, string[] args, string[] saveregs, StreamWriter sw)
 		{
 			if (!functions.ContainsKey(name))
@@ -680,11 +684,6 @@ namespace RV_Fabrication
 			foreach ((string, string) mov in movements)
 				sw.WriteLine($"\tmv {mov.Item2}, {mov.Item1}");
 		}
-		#endregion
-
-
-
-		#region Code actions
 		private void CallOrInlineFunction(Function func, StreamWriter sw)
 		{
 			bool inline;
@@ -735,8 +734,8 @@ namespace RV_Fabrication
 			{
 				string line = RenameLabels(func.Lines[lineIdx], labelMapping);
 				string trimmed = func.Lines[lineIdx].Trim();
-				//FIXME: Not applying directives
-				sw.WriteLine(line);
+				if (!ApplyIfFunctionCall(line, sw))
+					sw.WriteLine(line);
 				if (trimmed.StartsWith($"{func.Name}:"))
 					break;
 			}
@@ -752,9 +751,9 @@ namespace RV_Fabrication
 			{
 				string line = RenameLabels(func.Lines[lineIdx], labelMapping);
 				string trimmed = func.Lines[lineIdx].Trim();
-				//FIXME: Not applying directives
 				if (trimmed.StartsWith("ret")) break;
-				sw.WriteLine(line);
+				if (!ApplyIfFunctionCall(line, sw))
+					sw.WriteLine(line);
 			}
 			if (lineIdx == func.Lines.Count)
 			{
@@ -763,7 +762,19 @@ namespace RV_Fabrication
 			}
 			PushOrPopRegisters([.. savedRegisters], sw, true);
 			for (; lineIdx < func.Lines.Count; lineIdx++)
-				sw.WriteLine(RenameLabels(func.Lines[lineIdx], labelMapping)); //FIXME: Not applying directives
+			{
+				string line = RenameLabels(func.Lines[lineIdx], labelMapping);
+				if (!ApplyIfFunctionCall(line, sw))
+					sw.WriteLine(line);
+			}
+		}
+		private bool ApplyIfFunctionCall(string line, StreamWriter sw)
+		{
+			string clean = CleanLine(line);
+			if (!IsDirective(clean)) return false;
+			if (GetDirective(clean, out string[] args) != Directive.FuncCall) return false;
+			FunctionCall(args, sw);
+			return true;
 		}
 		private static string RenameLabels(string line, List<(string, string)> labels)
 		{
