@@ -256,7 +256,7 @@ namespace RV_Fabrication
 				}
 				Directive directive = GetDirective(clean, out string[] args);
 				string symbol;
-				if ((symbol = GetSymbols(clean).FirstOrDefault(poisonedSymbols.Contains, string.Empty)) != string.Empty)
+				if (directive != Directive.Poison &&  (symbol = GetSymbols(clean).FirstOrDefault(poisonedSymbols.Contains, string.Empty)) != string.Empty)
 				{
 					Logger.ErrorMsg($"Found poisoned symbol '{symbol}' in '{line}'.");
 					Environment.Exit(sectionImplementationPass);
@@ -447,7 +447,7 @@ namespace RV_Fabrication
 			}
 			for (int i = 0; i < args.Length; i++)
 			{
-				string symbol = args[0];
+				string symbol = args[i];
 				if (poisonedSymbols.Contains(symbol))
 				{
 					Logger.WarnMsg($"Symbol '{symbol}' is already poisoned. Ignoring...");
