@@ -424,7 +424,7 @@ namespace RV_Fabrication
 					else if (directive == Directive.FuncCall) func.IsLeaf = false;
 					else
 					{
-						Logger.ErrorMsg($"Found an invalid directive inside function '{name}'. ('{line}')");
+						Logger.ErrorMsg($"Found a prohibited directive inside function '{name}'. ('{line}')");
 						Environment.Exit(symbolSearchPass);
 					}
 				}
