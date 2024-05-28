@@ -66,19 +66,19 @@ namespace RV_Fabrication
 
 
 
-		public void ProcessFile(string path)
+		public void ProcessFile(string inFile, string outFile)
 		{
-			if (!Path.Exists(path))
+			if (!Path.Exists(inFile))
 			{
-				Logger.ErrorMsg($"Could not find path '{path}'.");
+				Logger.ErrorMsg($"Could not find input file '{inFile}'.");
 				Environment.Exit(genericError);
 			}
 
-			rootFile = Path.GetFullPath(path);
-			rootParent = Path.GetDirectoryName(path) ?? string.Empty;
+			rootFile = Path.GetFullPath(inFile);
+			rootParent = Path.GetDirectoryName(inFile) ?? string.Empty;
 			string blobPath = Path.ChangeExtension(rootFile, ".blob.s");
 			string macroedPath = Path.ChangeExtension(rootFile, ".macroed.s");
-			string finalPath = Path.ChangeExtension(rootFile, ".final.s");
+			string finalPath = Path.GetFullPath(outFile);
 
 			Cleanup(blobPath, macroedPath);
 			StreamWriter sw = new(blobPath);

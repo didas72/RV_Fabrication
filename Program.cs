@@ -7,7 +7,7 @@ namespace RV_Fabrication
 	{
 		private const string programName = "RV_Fabrication v1.0 by Didas72";
 
-		private static string mainPath = string.Empty;
+		private static string inPath = string.Empty, outPath = string.Empty;
 		private static FabricationProcessor.InlineMode inlineMode = FabricationProcessor.InlineMode.Auto;
 		private static bool logIncludes = false, logSourceMetrics = false, logFoundMacros = false, logAppliedMacros = false, logSymbols = false;
 
@@ -20,7 +20,7 @@ namespace RV_Fabrication
 			ParseArgs(args);
 
 			FabricationProcessor proc = new(inlineMode);
-			proc.ProcessFile(mainPath);
+			proc.ProcessFile(inPath, outPath);
 
 			if (logIncludes) proc.LogIncludedFiles();
 			if (logSourceMetrics) proc.LogSourceMetrics();
@@ -46,15 +46,27 @@ namespace RV_Fabrication
 					for (int j = 1; j < args[i].Length; j++)
 						ParseSwitch(args[i][j]);
 				}
-				else //Is full argument, in this case, should be mainPath
+				else //Is full argument, in this case, should be inPath
 				{
-					if (mainPath != string.Empty)
+					if (inPath != string.Empty && outPath != string.Empty)
 					{
-						Logger.ErrorMsg($"Found second non-switch argument: {args[i]}");
+						Logger.ErrorMsg($"Found third non-switch argument: {args[i]}");
 						Environment.Exit(1);
 					}
-					mainPath = args[i];
+					else if (inPath == string.Empty) inPath = args[i];
+					else outPath = args[i];
 				}
+			}
+
+			if (inPath == string.Empty)
+			{
+				Logger.ErrorMsg("No input file specified.");
+				Environment.Exit(1);
+			}
+			if (outPath == string.Empty)
+			{
+				outPath = Path.Combine(Path.GetDirectoryName(inPath) ?? "",
+					Path.GetFileNameWithoutExtension(inPath) + "_out" + Path.GetExtension(inPath));
 			}
 		}
 
@@ -172,7 +184,7 @@ namespace RV_Fabrication
 		private static void PrintUsage()
 		{
 			Logger.Print("Usage:");
-			Logger.Print(Path.GetFileName(Environment.ProcessPath) + " [options] <src_file>");
+			Logger.Print(Path.GetFileName(Environment.ProcessPath) + " [options] <in_file> [out_file]");
 			Logger.Print("\t<src_file> - Path to the file to process");
 			Logger.Print("Options:");
 			Logger.Print("\ta - Agressive inlining");
