@@ -386,7 +386,7 @@ namespace RV_Fabrication
 			{
 				switch (args[2])
 				{
-					case "agressiveinline":
+					case "aggressiveinline":
 						inlineHint = Function.InlineHint.AgressiveInline;
 						break;
 
@@ -399,7 +399,7 @@ namespace RV_Fabrication
 						break;
 
 					default:
-						Logger.ErrorMsg($"Directive funcdecl for '{name}' received an optional argument '{args[2]}'. This sould be one of the following: agressiveinline, noinline or autoinline.");
+						Logger.ErrorMsg($"Directive funcdecl for '{name}' received an optional argument '{args[2]}'. This sould be one of the following: aggressiveinline, noinline or autoinline.");
 						Environment.Exit(symbolSearchPass);
 						break;
 				}
