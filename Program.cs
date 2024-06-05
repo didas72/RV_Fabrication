@@ -9,6 +9,7 @@ namespace RV_Fabrication
 
 		private static string inPath = string.Empty, outPath = string.Empty;
 		private static FabricationProcessor.InlineMode inlineMode = FabricationProcessor.InlineMode.Auto;
+		private static FabricationProcessor.StripMode stripMode = FabricationProcessor.StripMode.FunctionCode;
 		private static bool logIncludes = false, logSourceMetrics = false, logFoundMacros = false, logAppliedMacros = false, logSymbols = false;
 
 
@@ -19,7 +20,7 @@ namespace RV_Fabrication
 
 			ParseArgs(args);
 
-			FabricationProcessor proc = new(inlineMode);
+			FabricationProcessor proc = new(inlineMode, stripMode);
 			proc.ProcessFile(inPath, outPath);
 
 			if (logIncludes) proc.LogIncludedFiles();
@@ -30,7 +31,7 @@ namespace RV_Fabrication
 		}
 
 
-		private static bool inlineModeSet = false, logLevelSet = false;
+		private static bool inlineModeSet = false, logLevelSet = false, stripModeSet = false;
 		private static void ParseArgs(string[] args)
 		{
 			for (int i = 0; i < args.Length; i++)
@@ -46,7 +47,7 @@ namespace RV_Fabrication
 					for (int j = 1; j < args[i].Length; j++)
 						ParseSwitch(args[i][j]);
 				}
-				else //Is full argument, in this case, should be inPath
+				else //Is full argument, in this case, should be inPath/outPath
 				{
 					if (inPath != string.Empty && outPath != string.Empty)
 					{
@@ -168,10 +169,70 @@ namespace RV_Fabrication
 				case 'S':
 					if (logSymbols)
 					{
-						Logger.ErrorMsg("Only one apply macros logging switch may be used.");
+						Logger.ErrorMsg("Only one apply symbol logging switch may be used.");
 						Environment.Exit(1);
 					}
 					logSymbols = true;
+					break;
+
+				case 'n':
+					if (stripModeSet)
+					{
+						Logger.ErrorMsg("Only one strip mode switch may be used.");
+						Environment.Exit(1);
+					}
+					stripMode = FabricationProcessor.StripMode.None;
+					stripModeSet = true;
+					break;
+
+				case 'C':
+					if (stripModeSet)
+					{
+						Logger.ErrorMsg("Only one strip mode switch may be used.");
+						Environment.Exit(1);
+					}
+					stripMode = FabricationProcessor.StripMode.MacroCode;
+					stripModeSet = true;
+					break;
+
+				case 'f':
+					if (stripModeSet)
+					{
+						Logger.ErrorMsg("Only one strip mode switch may be used.");
+						Environment.Exit(1);
+					}
+					stripMode = FabricationProcessor.StripMode.FunctionCode;
+					stripModeSet = true;
+					break;
+
+				case 'd':
+					if (stripModeSet)
+					{
+						Logger.ErrorMsg("Only one strip mode switch may be used.");
+						Environment.Exit(1);
+					}
+					stripMode = FabricationProcessor.StripMode.Directives;
+					stripModeSet = true;
+					break;
+
+				case 'c':
+					if (stripModeSet)
+					{
+						Logger.ErrorMsg("Only one strip mode switch may be used.");
+						Environment.Exit(1);
+					}
+					stripMode = FabricationProcessor.StripMode.SrcComments;
+					stripModeSet = true;
+					break;
+
+				case 'b':
+					if (stripModeSet)
+					{
+						Logger.ErrorMsg("Only one strip mode switch may be used.");
+						Environment.Exit(1);
+					}
+					stripMode = FabricationProcessor.StripMode.Blanks;
+					stripModeSet = true;
 					break;
 
 				default:
@@ -197,6 +258,12 @@ namespace RV_Fabrication
 			Logger.Print("\tm - List found macros");
 			Logger.Print("\tM - List applied macros");
 			Logger.Print("\tS - List functions found and posioned symbols");
+			Logger.Print("\tn - Don't strip output file");
+			Logger.Print("\tC - Strip macro code");
+			Logger.Print("\tf - Strip macro and function code");
+			Logger.Print("\td - Strip directives, as well as macro and function code");
+			Logger.Print("\tc - Strip source comments, directives, as well as macro and function code");
+			Logger.Print("\tb - Strip blank lines, source comments, directives, as well as macro and function code");
 		}
 	}
 }

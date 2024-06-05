@@ -5,7 +5,7 @@ using System.Linq;
 
 namespace RV_Fabrication
 {
-	internal class FabricationProcessor(FabricationProcessor.InlineMode inlineMode = FabricationProcessor.InlineMode.Auto)
+	internal class FabricationProcessor(FabricationProcessor.InlineMode inlineMode = FabricationProcessor.InlineMode.Auto, FabricationProcessor.StripMode stripMode = FabricationProcessor.StripMode.FunctionCode)
 	{
 		public const int REG_SIZE = 4;
 		public const string COMMENT_PREFIX = "#";
@@ -15,6 +15,7 @@ namespace RV_Fabrication
 		private const string FABRICATOR_PREFIX = COMMENT_PREFIX + "[[FABR]] ";
 		private const string MACRO_COMMENT = FABRICATOR_PREFIX + "MACRO_CODE: ";
 		private const string FUNC_COMMENT = FABRICATOR_PREFIX + "FUNCTION_CODE: ";
+		private const string DIRECTIVE_COMMENT = FABRICATOR_PREFIX + DIRECTIVE_PREFIX;
 		private readonly char[] SYMBOL_SEPARATORS = [' ', '\t', ',', ':', '(', ')'];
 		private readonly Dictionary<string, string> ABI_Names = new() {
 			{"x0","zero"},{"x1","ra"},{"x2","sp"},{"x3","gp"},{"x4","tp"},{"x5","t0"},{"x6","t1"},{"x7","t2"},
@@ -38,6 +39,7 @@ namespace RV_Fabrication
 		private string rootParent = string.Empty;
 
 		private readonly InlineMode inlineMode = inlineMode;
+		private readonly StripMode stripMode = stripMode;
 
 		private int lineCount = 0, directiveCount = 0, commentOnlyCount = 0, blankCount = 0, codeLineCount = 0;
 
@@ -63,7 +65,15 @@ namespace RV_Fabrication
 			Agressive,
 			Prohibit,
 		}
-
+		public enum StripMode
+		{
+			None = 0,
+			MacroCode = 1,
+			FunctionCode = 2, //Macro+Function
+			Directives = 3, //Macro+Function+Directives
+			SrcComments = 4, //Macro+Function+Directives+Comments
+			Blanks = 5, //Macro+Function+Directives+Comments+Blanks
+		}
 
 
 		public void ProcessFile(string inFile, string outFile)
@@ -267,7 +277,7 @@ namespace RV_Fabrication
 				}
 				Directive directive = GetDirective(clean, out string[] args);
 				string symbol;
-				if (directive != Directive.Poison &&  (symbol = GetSymbols(clean).FirstOrDefault(poisonedSymbols.Contains, string.Empty)) != string.Empty)
+				if (directive != Directive.Poison && (symbol = GetSymbols(clean).FirstOrDefault(poisonedSymbols.Contains, string.Empty)) != string.Empty)
 				{
 					Logger.ErrorMsg($"Found poisoned symbol '{symbol}' in '{line}'.");
 					Environment.Exit(sectionImplementationPass);
@@ -357,7 +367,7 @@ namespace RV_Fabrication
 					continue;
 				}
 				StreamReader sr = new(file);
-				sr.BaseStream.CopyTo(sw.BaseStream);
+				CopyAndClean(sr, sw);
 				sr.Close();
 			}
 			sw.Close();
@@ -787,6 +797,23 @@ namespace RV_Fabrication
 			FunctionCall(args, sw);
 			return true;
 		}
+		private void CopyAndClean(StreamReader sr, StreamWriter sw)
+		{
+			while (!sr.EndOfStream)
+			{
+				string line = sr.ReadLine() ?? "";
+
+				if (!(
+					(IsBlankLine(line) && stripMode >= StripMode.Blanks) ||
+					(IsCommentOnly(line) && stripMode >= StripMode.SrcComments) ||
+					(line.StartsWith(DIRECTIVE_COMMENT) && stripMode >= StripMode.Directives) || 
+					(line.StartsWith(FUNC_COMMENT) && stripMode >= StripMode.FunctionCode) ||
+					(line.StartsWith(MACRO_COMMENT) && stripMode >= StripMode.MacroCode)))
+				{
+					sw.WriteLine(line);
+				}
+			}
+		}
 		private static string RenameLabels(string line, List<(string, string)> labels)
 		{
 			string replaced = new(line);
@@ -943,8 +970,8 @@ namespace RV_Fabrication
 			args = (parts.Length >= 2) ? parts[1..] : [];
 			return parts[0][MACRO_PREFIX.Length..];
 		}
-		private static bool IsBlankLine(string cleaned) => string.IsNullOrWhiteSpace(cleaned);
-		private static bool IsCommentOnly(string cleaned) => cleaned.StartsWith(COMMENT_PREFIX);
+		private static bool IsBlankLine(string line) => string.IsNullOrWhiteSpace(line);
+		private static bool IsCommentOnly(string line) => line.TrimStart().StartsWith(COMMENT_PREFIX);
 		#endregion
 	}
 }
