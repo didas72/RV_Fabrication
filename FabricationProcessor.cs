@@ -98,12 +98,23 @@ namespace RV_Fabrication
 		#region Passes
 		private void IncludePass(string path, StreamWriter sw)
 		{
+			try
+			{
+				File.Open(path, FileMode.Open).Close();
+			}
+			catch
+			{
+				Logger.ErrorMsg($"Failed to open file '{path}'.");
+				Environment.Exit(includePass);
+			}
+
+			StreamReader sr = new(path);
+
 			string relPath = Path.GetRelativePath(rootParent, path);
 			string parentPath = Path.GetDirectoryName(path) ?? string.Empty;
 			if (includedFiles.Contains(relPath))
 				return;
 			includedFiles.Add(relPath);
-			StreamReader sr = new(path);
 			int lineNum = 0;
 
 			while (!sr.EndOfStream)
