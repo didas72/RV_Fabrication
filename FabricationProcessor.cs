@@ -594,7 +594,7 @@ namespace RV_Fabrication
 				Environment.Exit(macroApplicationPass);
 			}
 
-			sw.WriteLine(FABRICATOR_PREFIX + $"MACRO {name}");
+			sw.WriteLine(FABRICATOR_PREFIX + $"MACRO {name}"); //TODO: Add strip mode for this
 
 			foreach (string line in macro.Lines)
 			{
@@ -611,7 +611,7 @@ namespace RV_Fabrication
 				sw.WriteLine(macroed);
 			}
 
-			sw.WriteLine(FABRICATOR_PREFIX + $"ENDMACRO {name}");
+			sw.WriteLine(FABRICATOR_PREFIX + $"ENDMACRO {name}"); //TODO: Add strip mode for this
 
 			macro.References++;
 		}
@@ -732,6 +732,7 @@ namespace RV_Fabrication
 				Environment.Exit(sectionImplementationPass);
 			}
 			Function func = functions[name];
+			//TODO: Implement reference counting for removal of unused functions
 			//if (func.References == 0) return; //Ignore unused functions
 
 			ApplyFunctionCode(func, sw, null);
